@@ -10,6 +10,15 @@ on:
       aws-account-id:
         required: true
         description: "set this to AWS_ACCOUNT_ID of your user"
+      github-username:
+        required: true
+        description: "set this to github username for which PERSONAL_ACCESS_TOKEN_GITHUB was generated"
+      personal-access-token-github:
+        required: true
+        description: "set this to your PERSONAL_ACCESS_TOKEN_GITHUB - it is used during build for getting libs from github packages and for sonar access to github"        
+      access-token-sonar:
+        required: true
+        description: "set this to your SONAR_TOKEN - it is used for sending statistics from build to sonar cloud (https://sonarcloud.io)"
 
     inputs:
       java-version:
@@ -69,24 +78,25 @@ jobs:
           restore-keys: ${{ runner.os }}-sonar
 
       - name: Gradle build, analyze and publish
-        uses: gradle/gradle-build-action@v2
+        uses: gradle/gradle-build-action@v2.11.1
         with:
           build-root-directory: ${{ inputs.working-directory }}
           arguments: ${{ inputs.build-args }}
         env:
           # env vars for access to github-packages
-          GITHUB_USERNAME: readonly@powerex.io
-          PERSONAL_ACCESS_TOKEN_GITHUB: ${{ secrets.ACCESS_TOKEN_GITHUB }}
+          GITHUB_USERNAME: ${{ secrets.github-username }}
+          PERSONAL_ACCESS_TOKEN_GITHUB: ${{ secrets.personal-access-token-github }}
           # env vars for sonar
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.personal-access-token-github }}  # Needed to get PR information, if any
+          SONAR_TOKEN: ${{ secrets.access-token-sonar }}
 
       - name: Publish Unit Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2.12.0
         if: always()
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           junit_files: ${{ inputs.working-directory }}/build/test-results/**/*.xml
+        env:
+          GITHUB_TOKEN: ${{ secrets.personal-access-token-github }}
 
       - name: Set docker tag
         run: |
