@@ -1,0 +1,39 @@
+name: 'devtools-test-package'
+description: 'Action for testing package via devtools'
+author: 'patrik.beka@powerex.io'
+inputs:
+  package-dir:
+    description: 'Package directory'
+    required: true
+  activate-renv:
+    description: 'Boolean flag - activate if tested package is using renv'
+    required: false
+    default: FALSE
+  devtools-version:
+    description: 'Version of devtools package'
+    required: false
+    default: v2.4.2
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run tests
+      run: |
+
+        # install remotes package -> used for install specific devtools version from github
+        if (require("remotes") == FALSE) {
+          install.packages("remotes")
+        }
+
+        remotes::install_github("r-lib/devtools@${{ inputs.devtools-version }}", upgrade = "never")
+
+        list.files(path = "/usr/local/lib/R/site-library")
+
+        devtools::test(pkg = "${{ inputs.package-dir }}", reporter = testthat::JunitReporter$new(file = "junit_result.xml"), stop_on_failure = FALSE)
+      shell: Rscript {0}
+
+    - name: Publish Test Results
+      uses: mikepenz/action-junit-report@v4.0.3
+      with:
+        report_paths: '${{ inputs.package-dir }}/**/*.xml'
+        fail_on_failure: true

@@ -1,0 +1,113 @@
+on:
+  workflow_call:
+    secrets:
+      personal-access-token-github:
+        required: true
+        description: "set this to your PERSONAL_ACCESS_TOKEN_GITHUB/ACCESS_TOKEN_GITHUB - it is used during build for getting libs from github packages and for sonar access to github"        
+      aws-access-key-id:
+        required: true
+        description: "set this to AWS_ACCESS_KEY_ID of your user"
+      aws-secret-access-key:
+        required: true
+        description: "set this to AWS_SECRET_ACCESS_KEY of your user"
+      aws-account-id:
+        required: true
+        description: "set this to AWS_ACCOUNT_ID of your user"
+    
+    inputs:
+      working-directory:
+        required: true
+        type: string
+        description: "set this to working directory where the app is located"
+      docker-repo:
+        required: true
+        type: string
+        description: "name of the docker repo in aws ecr where the image will be pushed"
+      is-package:
+        required: true
+        type: string
+        description: "TRUE/FALSE flag that indicates if the tested code is package or not - it the tested code is r package, tests run via devtools otherwise run via testthat library"
+
+      cache-version:
+        required: false
+        type: string
+        default: v1
+        description: "indicates version of cache - if you need to invalidate saved cache (for example because of broken packages) increase the version"
+      renv-version:
+        required: false
+        type: string
+        default: 0.14.0
+        description: "version of renv library that handles r packages for the app"
+      r-image:
+        required: false
+        type: string
+        default: "powerex/pwx-r:4.1.2"
+        description: "r docker image on which the tests/build should ran, default r version is 4.1.2"
+
+    outputs:
+      tag-to-deploy:
+        description: "Published image tag for immediate deployment"
+        value: ${{ jobs.common-r-app-build.outputs.tag-to-deploy }}
+
+jobs:
+  common-r-app-build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: ${{ inputs.r-image }}
+
+    env:
+      # default env var name under which R uses token for package installation
+      GITHUB_PAT: "${{ secrets.personal-access-token-github }}"
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    outputs:
+      tag-to-deploy: ${{ steps.build-docker-image.outputs.tag-to-deploy }}
+
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          lfs: false
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          set-safe-directory: true
+
+      - name: Initialize global renv
+        uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@master
+        with:
+          working-dir: ${{ inputs.working-directory }}
+          renv-version: ${{ inputs.renv-version }}
+          cache-version: ${{ inputs.cache-version }}
+             
+      # Declares the repository safe and not under dubious ownership.
+      - name: Add repository to git safe directories
+        run: git config --global --add safe.directory $GITHUB_WORKSPACE
+             
+      # if the r project is package, tests run via devtools
+      - name: Run tests and report
+        if: inputs.is-package == 'true'
+        uses: PowereX-jsa/pwx-actions/r-actions/devtools-test-package@master
+        with:
+          package-dir: ${{ inputs.working-directory }}
+          activate-renv: "TRUE"
+      
+      # if r project is only scripts, tests run via simple testthat
+      - name: Run tests and report
+        if: inputs.is-package == 'false'
+        uses: PowereX-jsa/pwx-actions/r-actions/run-tests@master
+        with:
+          test-dir: ${{ inputs.working-directory }}/tests/testthat
+
+      # building docker images
+      - name: Build and push docker image
+        id: build-docker-image
+        uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image@master
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-account-id: ${{ secrets.aws-account-id }}
+          docker-repo: ${{ inputs.docker-repo }}
+          working-directory: ${{ inputs.working-directory }}
