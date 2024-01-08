@@ -4,30 +4,45 @@ on:
       personal-access-token-github:
         required: true
         description: "set this to your PERSONAL_ACCESS_TOKEN_GITHUB/ACCESS_TOKEN_GITHUB - it is used during build for getting libs from github packages and for sonar access to github"        
-
-    # TODO descriptions
+      aws-access-key-id:
+        required: true
+        description: "set this to AWS_ACCESS_KEY_ID of your user"
+      aws-secret-access-key:
+        required: true
+        description: "set this to AWS_SECRET_ACCESS_KEY of your user"
+      aws-account-id:
+        required: true
+        description: "set this to AWS_ACCOUNT_ID of your user"
+    
     inputs:
       working-directory:
         required: true
         type: string
+        description: "set this to working directory where the app is located"
       docker-repo:
         required: true
         type: string
+        description: "name of the docker repo in aws ecr where the image will be pushed"
+      is-package:
+        required: true
+        type: string
+        description: "TRUE/FALSE flag that indicates if the tested code is package or not - it the tested code is r package, tests run via devtools otherwise run via testthat library"
+
       cache-version:
         required: false
         type: string
         default: v1
-      is-package:
-        required: true
-        type: string
+        description: "indicates version of cache - if you need to invalidate saved cache (for example because of broken packages) increase the version"
       renv-version:
         required: false
         type: string
         default: 0.14.0
+        description: "version of renv library that handles r packages for the app"
       r-image:
         required: false
         type: string
         default: "powerex/pwx-r:4.1.2"
+        description: "r docker image on which the tests/build should ran, default r version is 4.1.2"
 
     outputs:
       tag-to-deploy:
@@ -105,9 +120,9 @@ jobs:
       - name: Docker build and push
         uses: kciter/aws-ecr-action@master
         with:
-          access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          account_id: ${{ secrets.AWS_ACCOUNT_ID }}
+          access_key_id: ${{ secrets.aws-access-key-id }}
+          secret_access_key: ${{ secrets.aws-secret-access-key }}
+          account_id: ${{ secrets.aws-account-id }}
           repo: ${{ inputs.docker-repo }}
           region: eu-central-1
           tags: ${{ env.TAG }}
