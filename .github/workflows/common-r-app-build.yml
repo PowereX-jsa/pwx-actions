@@ -76,8 +76,7 @@ jobs:
           set-safe-directory: true
 
       - name: Initialize global renv
-        # TODO master
-        uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@feature/no-issue_migrate_r_actions
+        uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@master
         with:
           working-dir: ${{ inputs.working-directory }}
           renv-version: ${{ inputs.renv-version }}
@@ -90,8 +89,7 @@ jobs:
       # if the r project is package, tests run via devtools
       - name: Run tests and report
         if: inputs.is-package == 'true'
-        # TODO master
-        uses: PowereX-jsa/pwx-actions/r-actions/devtools-test-package@feature/no-issue_migrate_r_actions
+        uses: PowereX-jsa/pwx-actions/r-actions/devtools-test-package@master
         with:
           package-dir: ${{ inputs.working-directory }}
           activate-renv: "TRUE"
@@ -99,16 +97,14 @@ jobs:
       # if r project is only scripts, tests run via simple testthat
       - name: Run tests and report
         if: inputs.is-package == 'false'
-        # TODO master
-        uses: PowereX-jsa/pwx-actions/r-actions/run-tests@feature/no-issue_migrate_r_actions
+        uses: PowereX-jsa/pwx-actions/r-actions/run-tests@master
         with:
           test-dir: ${{ inputs.working-directory }}/tests/testthat
 
       # building docker images
       - name: Build and push docker image
         id: build-docker-image
-        # TODO master
-        uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image@feature/no-issue_migrate_r_actions
+        uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image@master
         with:
           aws-access-key-id: ${{ secrets.aws-access-key-id }}
           aws-secret-access-key: ${{ secrets.aws-secret-access-key }}

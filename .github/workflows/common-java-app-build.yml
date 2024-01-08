@@ -101,8 +101,7 @@ jobs:
       # building docker images
       - name: Build and push docker image
         id: build-docker-image
-        # TODO master
-        uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image@feature/no-issue_migrate_r_actions
+        uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image@master
         with:
           aws-access-key-id: ${{ secrets.aws-access-key-id }}
           aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
