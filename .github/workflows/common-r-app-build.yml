@@ -1,43 +1,32 @@
 on:
   workflow_call:
     secrets:
-      aws-access-key-id:
-        required: true
-        description: "set this to AWS_ACCESS_KEY_ID of your user"
-      aws-secret-access-key:
-        required: true
-        description: "set this to AWS_SECRET_ACCESS_KEY of your user"
-      aws-account-id:
-        required: true
-        description: "set this to AWS_ACCOUNT_ID of your user"
-      github-username:
-        required: true
-        description: "set this to github username for which PERSONAL_ACCESS_TOKEN_GITHUB was generated"
       personal-access-token-github:
         required: true
         description: "set this to your PERSONAL_ACCESS_TOKEN_GITHUB/ACCESS_TOKEN_GITHUB - it is used during build for getting libs from github packages and for sonar access to github"        
-      access-token-sonar:
-        required: true
-        description: "set this to your SONAR_TOKEN - it is used for sending statistics from build to sonar cloud (https://sonarcloud.io)"
 
     inputs:
-      java-version:
-        required: true
-        type: number
-        description: "set this to your desired java version (17, 19, etc.) of your project"
       working-directory:
         required: true
         type: string
-        description: "set this to working directory where the app is located"
       docker-repo:
         required: true
         type: string
-        description: "name of the docker repo in aws ecr where the image will be pushed"
-      build-args:
+      cache-version:
         required: false
         type: string
-        default: build --scan sonarqube --info
-        description: "set this to your desired java gradle build arguments"
+        default: v1
+      is-package:
+        required: true
+        type: string
+      renv-version:
+        required: false
+        type: string
+        default: 0.14.0
+      r-image:
+        required: false
+        type: string
+        default: "powerex/pwx-r:4.1.2"
 
     outputs:
       tag-to-deploy:
@@ -45,8 +34,15 @@ on:
         value: ${{ jobs.common-java-app-build.outputs.tag-to-deploy }}
 
 jobs:
-  common-java-app-build:
+  common-r-api-build:
     runs-on: ubuntu-latest
+
+    container:
+      image: ${{ inputs.r-image }}
+
+    env:
+      # default env var name under which R uses token for package installation
+      GITHUB_PAT: "${{ secrets.personal-access-token-github }}"
 
     defaults:
       run:
@@ -57,47 +53,44 @@ jobs:
       tag-to-deploy: ${{ steps.output-docker-tag.outputs.TAG_TO_DEPLOY }}
 
     steps:
-      - uses: actions/checkout@v4.1.1
+      - uses: actions/checkout@v3
         with:
+          lfs: false
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          set-safe-directory: true
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4.0.0
+      - name: Initialize global renv
+        # TODO master
+        uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@feature/no-issue_migrate_r_actions
         with:
-          distribution: 'corretto'
-          java-version: ${{ inputs.java-version }}
-
-      - name: Validate Gradle wrapper
-        uses: gradle/wrapper-validation-action@v1.1.0
-
-      - name: Cache SonarCloud packages
-        uses: actions/cache@v3.3.2
+          working-dir: ${{ inputs.working-directory }}
+          renv-version: ${{ inputs.renv-version }}
+          cache-version: ${{ inputs.cache-version }}
+             
+      # Declares the repository safe and not under dubious ownership.
+      - name: Add repository to git safe directories
+        run: git config --global --add safe.directory $GITHUB_WORKSPACE
+             
+      # if the r project is package, tests run via devtools
+      - name: Run tests and report
+        if: inputs.is-package == 'true'
+        # TODO master
+        uses: PowereX-jsa/pwx-actions/r-actions/devtools-test-package@feature/no-issue_migrate_r_actions
         with:
-          path: ~/.sonar/cache
-          key: ${{ runner.os }}-sonar
-          restore-keys: ${{ runner.os }}-sonar
-
-      - name: Gradle build, analyze and publish
-        uses: gradle/gradle-build-action@v2.11.1
+          package-dir: ${{ inputs.working-directory }}
+          activate-renv: "TRUE"
+      
+      # if r project is only scripts, tests run via simple testthat
+      - name: Run tests and report
+        if: inputs.is-package == 'false'
+        # TODO master
+        uses: PowereX-jsa/pwx-actions/r-actions/run-tests@feature/no-issue_migrate_r_actions
         with:
-          build-root-directory: ${{ inputs.working-directory }}
-          arguments: ${{ inputs.build-args }}
-        env:
-          # env vars for access to github-packages
-          GITHUB_USERNAME: ${{ secrets.github-username }}
-          PERSONAL_ACCESS_TOKEN_GITHUB: ${{ secrets.personal-access-token-github }}
-          # env vars for sonar
-          GITHUB_TOKEN: ${{ secrets.personal-access-token-github }}  # Needed to get PR information, if any
-          SONAR_TOKEN: ${{ secrets.access-token-sonar }}
+          test-dir: ${{ inputs.working-directory }}/tests/testthat
 
-      - name: Publish Unit Test Results
-        uses: EnricoMi/publish-unit-test-result-action@v2.12.0
-        if: always()
-        with:
-          junit_files: ${{ inputs.working-directory }}/build/test-results/**/*.xml
-        env:
-          GITHUB_TOKEN: ${{ secrets.personal-access-token-github }}
+      # TODO this 3 sections are same as in common-java-app-build -> create either separate job or composite action
 
+      # building docker images
       - name: Set docker tag
         run: |
           if [[ ${{ github.ref }} == 'refs/heads/master' || ${{ github.ref }} == 'refs/heads/main' ]]; then
@@ -111,9 +104,9 @@ jobs:
       - name: Docker build and push
         uses: kciter/aws-ecr-action@master
         with:
-          access_key_id: ${{ secrets.aws-access-key-id }}
-          secret_access_key: ${{ secrets.aws-secret-access-key }}
-          account_id: ${{ secrets.aws-account-id }}
+          access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          account_id: ${{ secrets.AWS_ACCOUNT_ID }}
           repo: ${{ inputs.docker-repo }}
           region: eu-central-1
           tags: ${{ env.TAG }}
