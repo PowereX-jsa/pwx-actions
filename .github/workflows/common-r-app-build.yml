@@ -5,6 +5,7 @@ on:
         required: true
         description: "set this to your PERSONAL_ACCESS_TOKEN_GITHUB/ACCESS_TOKEN_GITHUB - it is used during build for getting libs from github packages and for sonar access to github"        
 
+    # TODO descriptions
     inputs:
       working-directory:
         required: true
@@ -53,7 +54,7 @@ jobs:
       tag-to-deploy: ${{ steps.output-docker-tag.outputs.TAG_TO_DEPLOY }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4.1.1
         with:
           lfs: false
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
