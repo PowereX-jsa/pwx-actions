@@ -13,10 +13,10 @@ on:
         required: true
         type: string
         description: "set this to your preferred AWS region, e.g. us-west-1"
-      instance:
+      app:
         required: true
         type: string
-        description: "set this to your instance name - service/task definition name, e.g. emsi-stm-dubnica"
+        description: "set this to your app name - service/task definition name, e.g. emsi"
 
     outputs:
       instances-matrix:
@@ -66,6 +66,9 @@ jobs:
 
           echo "final json matrix definition: '${matrix_json_definition}'"
 
+          # add to step/job output
           echo "instances-matrix=$( echo  ${matrix_json_definition})" >> "$GITHUB_OUTPUT"
 
-          echo "### \#\# going to deploy following services: ${defs}" >> $GITHUB_STEP_SUMMARY
+          # add job summary
+          echo "### \#\# going to deploy following services: " >> $GITHUB_STEP_SUMMARY
+          echo "${defs} " >> $GITHUB_STEP_SUMMARY
