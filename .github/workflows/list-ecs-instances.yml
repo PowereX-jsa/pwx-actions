@@ -18,11 +18,10 @@ on:
         type: string
         description: "set this to your instance name - service/task definition name, e.g. emsi-stm-dubnica"
 
-    # TODO
     outputs:
-      tag-to-deploy:
-        description: "Published image tag for immediate deployment"
-        value: ${{ jobs.common-java-app-build.outputs.tag-to-deploy }}
+      instances-matrix:
+        description: "Returned ecs services/task-def names for the app"
+        value: ${{ jobs.list-instances.outputs.instances-matrix }}
 
 jobs:
   list-instances:
