@@ -1,0 +1,74 @@
+on:
+  workflow_call:
+    secrets:
+      aws-access-key-id:
+        required: true
+        description: "set this to AWS_ACCESS_KEY_ID of your user"
+      aws-secret-access-key:
+        required: true
+        description: "set this to AWS_SECRET_ACCESS_KEY of your user"
+
+    inputs:
+      aws-region:
+        required: true
+        type: string
+        description: "set this to your preferred AWS region, e.g. us-west-1"
+      app:
+        required: true
+        type: string
+        description: "set this to your app name - service/task definition name, e.g. emsi"
+
+    outputs:
+      instances-matrix:
+        description: "Returned ecs services/task-def names for the app"
+        value: ${{ jobs.list-instances.outputs.instances-matrix }}
+
+jobs:
+  list-instances:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      instances-matrix: ${{ steps.get-all-instances.outputs.instances-matrix }}
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+          mask-aws-account-id: true
+
+      - name: Get all instances for app
+        id: get-all-instances
+        run: |
+          # get all requested task definitions
+          defs=$(aws ecs list-task-definitions --region eu-central-1 | grep r-api-wrapper | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq)
+
+          echo "all listed services/task defs:"
+          echo "${defs}"
+
+          matrix_json_definition="{ \"instance\" : [ "
+
+          # add instances
+          for def in ${defs}
+          do
+            echo "def: ${def} - adding to matrix"
+
+            matrix_json_definition+="\"${def}\","
+          done
+
+          # finish end of the json
+          matrix_json_definition=${matrix_json_definition::-1}
+          matrix_json_definition="${matrix_json_definition} ] }"
+
+          echo "final json matrix definition: '${matrix_json_definition}'"
+
+          # add to step/job output
+          echo "instances-matrix=$( echo  ${matrix_json_definition})" >> "$GITHUB_OUTPUT"
+
+          # add job summary
+          echo "### \#\# going to deploy following services: " >> $GITHUB_STEP_SUMMARY
+          echo "${defs} " >> $GITHUB_STEP_SUMMARY
