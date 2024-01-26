@@ -44,8 +44,8 @@ jobs:
       - name: Get all instances for app
         id: get-all-instances
         run: |
-          # get all requested task definitions
-          defs=$(aws ecs list-task-definitions --region eu-central-1 | grep r-api-wrapper | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq)
+          # get all task definitions for requested app
+          defs=$(aws ecs list-task-definitions | grep ${{ inputs.app }} | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq)
 
           echo "all listed services/task defs:"
           echo "${defs}"
