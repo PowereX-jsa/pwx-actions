@@ -27,8 +27,7 @@ on:
 
 jobs:
   list-instances:
-    # TODO master after merge
-    uses: PowereX-jsa/pwx-actions/.github/workflows/list-ecs-instances.yml@feature/#no-issue_deploy_instances_job_wrapper
+    uses: PowereX-jsa/pwx-actions/.github/workflows/list-ecs-instances.yml@master
     secrets: 
       aws-access-key-id: ${{ secrets.aws-access-key-id }}
       aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
