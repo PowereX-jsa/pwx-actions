@@ -27,8 +27,11 @@ runs:
     - name: Create env matrix
       id: create-env-matrix
       run: |
-        # process: print json config | filter specified envs (prod, test, etc.) | create array, wrap it in env key and compact 
-        env_matrix=$(echo '${{ inputs.config }}' | jq '{ ${{ inputs.env-names }} }' | jq '{ "env": . } ' -c)
+        # create jq filter based on env names, example: '.prod,.test'
+        jq_env_name_filter=".$( echo "${{ inputs.env-names }}" | sed 's/,/,./g' )"
+
+        # process: print json config | filter specified envs (prod, test, etc.) | create array | wrap it in env key and compact 
+        env_matrix=$(echo '${{ inputs.config }}' | jq "${jq_env_name_filter}" | jq -s | jq '{ "env": . } ' -c)
 
         echo "env-matrix=$( echo  ${env_matrix})" >> "$GITHUB_OUTPUT"
         echo "### \#\# created following env matrix: " >> $GITHUB_STEP_SUMMARY
