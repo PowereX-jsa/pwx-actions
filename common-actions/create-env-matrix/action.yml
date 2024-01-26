@@ -3,11 +3,6 @@ description: 'Action for creating env matrix with specific secret names, ecs clu
 author: 'patrik.beka@powerex.io'
 
 inputs:
-  env-names:
-    required: true
-    type: string
-    # input example: 'prod,dev'
-    description: "names of specific envs separated by ',' - e.g. 'prod,dev,test' or only 'prod'"
   config:
     required: true
     type: string
@@ -24,11 +19,32 @@ runs:
   using: "composite"
 
   steps:
+    - name: Choose environments
+      id: choose-env
+      run: |
+        # TODO maybe do not hardcode it like this?
+        master_deployment_env_names=$(echo ${{ inputs.config }} | jq ".|= keys | join(\",\")")
+        dev_deployment_env_names="dev"
+
+        echo "found envs: ${master_deployment_env_names}"
+
+        # deploy to prod and dev on master/main
+        if [[ ${{ github.ref }} == 'refs/heads/master' || ${{ github.ref }} == 'refs/heads/main' ]]; then
+          echo "env-names=$( echo  ${master_deployment_env_names})" >> "$GITHUB_OUTPUT"
+          echo "### \#\# choosing following envs for deployment: '${master_deployment_env_names}'" >> $GITHUB_STEP_SUMMARY
+        
+        # deploy to dev on non-protected branches
+        else
+          echo "env-names=$( echo  ${dev_deployment_env_names})" >> "$GITHUB_OUTPUT"
+          echo "### \#\# choosing following envs for deployment: '${dev_deployment_env_names}'" >> $GITHUB_STEP_SUMMARY
+        fi
+      shell: bash
+
     - name: Create env matrix
       id: create-env-matrix
       run: |
         # create jq filter based on env names, example: '.prod,.test'
-        jq_env_name_filter=".$( echo "${{ inputs.env-names }}" | sed 's/,/,./g' )"
+        jq_env_name_filter=".$( echo "${{ steps.choose-env.outputs.env-names }}" | sed 's/,/,./g' )"
 
         # process: print json config | filter specified envs (prod, test, etc.) | create array | wrap it in env key and compact 
         env_matrix=$(echo '${{ inputs.config }}' | jq "${jq_env_name_filter}" | jq -s | jq '{ "env": . } ' -c)
