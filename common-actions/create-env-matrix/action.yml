@@ -23,7 +23,7 @@ runs:
       id: choose-env
       run: |
         # TODO maybe do not hardcode it like this?
-        master_deployment_env_names=$(echo ${{ inputs.config }} | jq ".|= keys | join(\",\")")
+        master_deployment_env_names=$(echo "${{ inputs.config }}" | jq ".|= keys | join(\",\")" )
         dev_deployment_env_names="dev"
 
         echo "found envs: ${master_deployment_env_names}"
