@@ -39,18 +39,14 @@ jobs:
   deploy:
     strategy:
       matrix: ${{ fromJson(needs.list-instances.outputs.instances-matrix) }}
-      # if you need to select specific instances use this:
-      # matrix: [ nomination-r-api-wrapper, production-prediction-r-api-wrapper ]
     needs: [ list-instances ]
     uses: PowereX-jsa/pwx-actions/.github/workflows/task-def-app-deploy.yml@master
     secrets:
-      # TODO different keys when deploying to prod - use with 'PWX_PROD_' prefix
-      aws-access-key-id: ${{ secrets.PWX_DEV_AWS_ACCESS_KEY_ID }}
-      aws-secret-access-key: ${{ secrets.PWX_DEV_AWS_SECRET_ACCESS_KEY }}
+      aws-access-key-id: ${{ secrets.aws-access-key-id }}
+      aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
     with:
       aws-region: ${{ inputs.aws-region }}
       ecs-service: ${{ matrix.instance }}
       ecs-task-definition: ${{ matrix.instance }}
       ecs-cluster: ${{ inputs.ecs-cluster }}
-      # TODO this depends on aws account, aws region, aws ecr repository and current tag -> could be created dynamically?
       image: ${{ inputs.image }}
