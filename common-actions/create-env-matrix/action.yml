@@ -1,0 +1,56 @@
+name: 'create-env-matrix'
+description: 'Action for creating env matrix with specific secret names, ecs cluster name, environments, etc.'
+author: 'patrik.beka@powerex.io'
+
+inputs:
+  config:
+    required: true
+    type: string
+    # json example: '{"prod":{"env":"prod","aws-access-key-id":"PROD_AWS_ACCESS_KEY_ID","aws-secret-access-key":"PROD_AWS_SECRET_ACCESS_KEY","ecs-cluster":"prod-cluster"},"dev":{"env":"dev","aws-access-key-id":"DEV_AWS_ACCESS_KEY_ID","aws-secret-access-key":"DEV_AWS_SECRET_ACCESS_KEY","ecs-cluster":"dev-cluster"},"test":{"env":"tes","aws-access-key-id":"TEST_AWS_ACCESS_KEY_ID","aws-secret-access-key":"TEST_AWS_SECRET_ACCESS_KEY","ecs-cluster":"test-cluster"}}'
+    description: "json config describing environments, currently stored as organization variable"
+
+outputs:
+  env-matrix:
+    # output example: '{"env":[{"prod":{"env":"prod","aws-access-key-id":"PROD_AWS_ACCESS_KEY_ID","aws-secret-access-key":"PROD_AWS_SECRET_ACCESS_KEY","ecs-cluster":"prod-cluster"},"dev":{"env":"dev","aws-access-key-id":"DEV_AWS_ACCESS_KEY_ID","aws-secret-access-key":"DEV_AWS_SECRET_ACCESS_KEY","ecs-cluster":"dev-cluster"}}]}'
+    description: "env matrix strategy for use in subsequent github actions jobs"
+    value: ${{ steps.create-env-matrix.outputs.env-matrix }}
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Choose environments
+      id: choose-env
+      run: |
+        # TODO maybe do not hardcode it like this?
+        master_deployment_env_names=$(echo '${{ inputs.config }}' | jq ".|= keys | join(\",\")" )
+        dev_deployment_env_names="dev"
+
+        echo "found envs: ${master_deployment_env_names}"
+
+        # deploy to prod and dev on master/main
+        if [[ ${{ github.ref }} == 'refs/heads/master' || ${{ github.ref }} == 'refs/heads/main' ]]; then
+          echo "env-names=$( echo  ${master_deployment_env_names})" >> "$GITHUB_OUTPUT"
+          echo "### \#\# choosing following envs for deployment: '${master_deployment_env_names}'" >> $GITHUB_STEP_SUMMARY
+        
+        # deploy to dev on non-protected branches
+        else
+          echo "env-names=$( echo  ${dev_deployment_env_names})" >> "$GITHUB_OUTPUT"
+          echo "### \#\# choosing following envs for deployment: '${dev_deployment_env_names}'" >> $GITHUB_STEP_SUMMARY
+        fi
+      shell: bash
+
+    - name: Create env matrix
+      id: create-env-matrix
+      run: |
+        # create jq filter based on env names, example: '.prod,.test'
+        jq_env_name_filter=".$( echo "${{ steps.choose-env.outputs.env-names }}" | sed 's/,/,./g' )"
+
+        # process: print json config | filter specified envs (prod, test, etc.) | create array | wrap it in env key and compact 
+        env_matrix=$(echo '${{ inputs.config }}' | jq "${jq_env_name_filter}" | jq -s | jq '{ "env": . } ' -c)
+
+        echo "env-matrix=$( echo  ${env_matrix})" >> "$GITHUB_OUTPUT"
+        echo "### \#\# created following env matrix: " >> $GITHUB_STEP_SUMMARY
+        echo "${env_matrix} " >> $GITHUB_STEP_SUMMARY
+      
+      shell: bash

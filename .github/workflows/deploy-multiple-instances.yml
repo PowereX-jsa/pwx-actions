@@ -1,0 +1,51 @@
+on:
+  workflow_call:
+    secrets:
+      aws-access-key-id:
+        required: true
+        description: "set this to AWS_ACCESS_KEY_ID of your user"
+      aws-secret-access-key:
+        required: true
+        description: "set this to AWS_SECRET_ACCESS_KEY of your user"
+    inputs:
+      aws-region:
+        required: true
+        type: string
+        description: "set this to your preferred AWS region, e.g. us-west-1"
+      app:
+        required: true
+        type: string
+        description: "set this to your app name - service/task definition name, e.g. emsi - for deploying multiple instances of app 'emsi', or specific 'emsi-stm-dubnica' - for deploying only 1 specific instance)"
+      ecs-cluster:
+        required: true
+        type: string
+        description: "set this to your Amazon ECS cluster name, e.g. ecs-dev"
+      image:
+        required: true
+        type: string
+        description: "image to deploy to ecs in task def, e.g. 587619238227.dkr.ecr.eu-central-1.amazonaws.com/imbalance-service"
+
+jobs:
+  list-instances:
+    uses: PowereX-jsa/pwx-actions/.github/workflows/list-ecs-instances.yml@master
+    secrets: 
+      aws-access-key-id: ${{ secrets.aws-access-key-id }}
+      aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+    with:
+      aws-region: ${{ inputs.aws-region }}
+      app: ${{ inputs.app }}
+
+  deploy:
+    strategy:
+      matrix: ${{ fromJson(needs.list-instances.outputs.instances-matrix) }}
+    needs: [ list-instances ]
+    uses: PowereX-jsa/pwx-actions/.github/workflows/task-def-app-deploy.yml@master
+    secrets:
+      aws-access-key-id: ${{ secrets.aws-access-key-id }}
+      aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+    with:
+      aws-region: ${{ inputs.aws-region }}
+      ecs-service: ${{ matrix.instance }}
+      ecs-task-definition: ${{ matrix.instance }}
+      ecs-cluster: ${{ inputs.ecs-cluster }}
+      image: ${{ inputs.image }}
