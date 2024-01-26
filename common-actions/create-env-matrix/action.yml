@@ -1,0 +1,37 @@
+name: 'create-env-matrix'
+description: 'Action for creating env matrix with specific secret names, ecs cluster name, environments, etc.'
+author: 'patrik.beka@powerex.io'
+
+inputs:
+  env-names:
+    required: true
+    type: string
+    # input example: 'prod,dev'
+    description: "names of specific envs separated by ',' - e.g. 'prod,dev,test' or only 'prod'"
+  config:
+    required: true
+    type: string
+    # json example: '{"prod":{"env":"prod","aws-access-key-id":"PROD_AWS_ACCESS_KEY_ID","aws-secret-access-key":"PROD_AWS_SECRET_ACCESS_KEY","ecs-cluster":"prod-cluster"},"dev":{"env":"dev","aws-access-key-id":"DEV_AWS_ACCESS_KEY_ID","aws-secret-access-key":"DEV_AWS_SECRET_ACCESS_KEY","ecs-cluster":"dev-cluster"},"test":{"env":"tes","aws-access-key-id":"TEST_AWS_ACCESS_KEY_ID","aws-secret-access-key":"TEST_AWS_SECRET_ACCESS_KEY","ecs-cluster":"test-cluster"}}'
+    description: "json config describing environments, currently stored as organization variable"
+
+outputs:
+  env-matrix:
+    # output example: '{"env":[{"prod":{"env":"prod","aws-access-key-id":"PROD_AWS_ACCESS_KEY_ID","aws-secret-access-key":"PROD_AWS_SECRET_ACCESS_KEY","ecs-cluster":"prod-cluster"},"dev":{"env":"dev","aws-access-key-id":"DEV_AWS_ACCESS_KEY_ID","aws-secret-access-key":"DEV_AWS_SECRET_ACCESS_KEY","ecs-cluster":"dev-cluster"}}]}'
+    description: "env matrix strategy for use in subsequent github actions jobs"
+    value: ${{ steps.create-env-matrix.outputs.env-matrix }}
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Create env matrix
+      id: create-env-matrix
+      run: |
+        # process: print json config | filter specified envs (prod, test, etc.) | create array, wrap it in env key and compact 
+        env_matrix=$(echo '${{ inputs.config }}' | jq '{ ${{ inputs.env-names }} }' | jq '{ "env": . } ' -c)
+
+        echo "env-matrix=$( echo  ${env_matrix})" >> "$GITHUB_OUTPUT"
+        echo "### \#\# created following env matrix: " >> $GITHUB_STEP_SUMMARY
+        echo "${env_matrix} " >> $GITHUB_STEP_SUMMARY
+      
+      shell: bash
