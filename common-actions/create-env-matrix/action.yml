@@ -9,6 +9,12 @@ inputs:
     # json example: '{"prod":{"env":"prod","aws-access-key-id":"PROD_AWS_ACCESS_KEY_ID","aws-secret-access-key":"PROD_AWS_SECRET_ACCESS_KEY","ecs-cluster":"prod-cluster"},"dev":{"env":"dev","aws-access-key-id":"DEV_AWS_ACCESS_KEY_ID","aws-secret-access-key":"DEV_AWS_SECRET_ACCESS_KEY","ecs-cluster":"dev-cluster"},"test":{"env":"tes","aws-access-key-id":"TEST_AWS_ACCESS_KEY_ID","aws-secret-access-key":"TEST_AWS_SECRET_ACCESS_KEY","ecs-cluster":"test-cluster"}}'
     description: "json config describing environments, currently stored as organization variable"
 
+  deployment-env-names:
+    required: false
+    type: string
+    description: "list of deployment env names that should be used"
+    default: ""
+
 outputs:
   env-matrix:
     # output example: '{"env":[{"prod":{"env":"prod","aws-access-key-id":"PROD_AWS_ACCESS_KEY_ID","aws-secret-access-key":"PROD_AWS_SECRET_ACCESS_KEY","ecs-cluster":"prod-cluster"},"dev":{"env":"dev","aws-access-key-id":"DEV_AWS_ACCESS_KEY_ID","aws-secret-access-key":"DEV_AWS_SECRET_ACCESS_KEY","ecs-cluster":"dev-cluster"}}]}'
@@ -22,21 +28,33 @@ runs:
     - name: Choose environments
       id: choose-env
       run: |
-        # TODO maybe do not hardcode it like this?
-        master_deployment_env_names=$(echo '${{ inputs.config }}' | jq ".|= keys | join(\",\")" )
-        dev_deployment_env_names="dev"
+        deployment_env_names='${{ inputs.deployment-env-names }}'
 
-        echo "found envs: ${master_deployment_env_names}"
-
-        # deploy to prod and dev on master/main
-        if [[ ${{ github.ref }} == 'refs/heads/master' || ${{ github.ref }} == 'refs/heads/main' ]]; then
-          echo "env-names=$( echo  ${master_deployment_env_names})" >> "$GITHUB_OUTPUT"
-          echo "### \#\# choosing following envs for deployment: '${master_deployment_env_names}'" >> $GITHUB_STEP_SUMMARY
-        
-        # deploy to dev on non-protected branches
+        # if 'deployment-env-names' is set, use it
+        if [[ ! -z "$deployment_env_names" ]]; then
+          echo "using envs from inputs: ${deployment_env_names}"
+          
+          echo "env-names=$( echo  ${deployment_env_names})" >> "$GITHUB_OUTPUT"
+          echo "### \#\# choosing following envs for deployment based on inputs '${deployment_env_names}'" >> $GITHUB_STEP_SUMMARY
+       
+        # otherwise use deploy strategy based on branch names
         else
-          echo "env-names=$( echo  ${dev_deployment_env_names})" >> "$GITHUB_OUTPUT"
-          echo "### \#\# choosing following envs for deployment: '${dev_deployment_env_names}'" >> $GITHUB_STEP_SUMMARY
+          master_deployment_env_names=$(echo '${{ inputs.config }}' | jq ".|= keys | join(\",\")" )
+          # TODO maybe do not hardcode it like this?
+          dev_deployment_env_names="dev"
+
+          echo "found envs: ${master_deployment_env_names}"
+
+          # deploy to prod and dev on master/main
+          if [[ ${{ github.ref }} == 'refs/heads/master' || ${{ github.ref }} == 'refs/heads/main' ]]; then
+            echo "env-names=$( echo  ${master_deployment_env_names})" >> "$GITHUB_OUTPUT"
+            echo "### \#\# choosing following envs for deployment: '${master_deployment_env_names}'" >> $GITHUB_STEP_SUMMARY
+          
+          # deploy to dev on non-protected branches
+          else
+            echo "env-names=$( echo  ${dev_deployment_env_names})" >> "$GITHUB_OUTPUT"
+            echo "### \#\# choosing following envs for deployment: '${dev_deployment_env_names}'" >> $GITHUB_STEP_SUMMARY
+          fi
         fi
       shell: bash
 
