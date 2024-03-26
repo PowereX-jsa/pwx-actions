@@ -27,7 +27,7 @@ on:
 
 jobs:
   list-instances:
-    uses: PowereX-jsa/pwx-actions/.github/workflows/list-ecs-instances.yml@bugfix/#no-issue_deploying_inactive_tasks
+    uses: PowereX-jsa/pwx-actions/.github/workflows/list-ecs-instances.yml@master
     secrets: 
       aws-access-key-id: ${{ secrets.aws-access-key-id }}
       aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
