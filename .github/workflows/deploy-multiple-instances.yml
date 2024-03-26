@@ -37,6 +37,7 @@ jobs:
 
   deploy:
     strategy:
+      fail-fast: false
       matrix: ${{ fromJson(needs.list-instances.outputs.instances-matrix) }}
     needs: [ list-instances ]
     uses: PowereX-jsa/pwx-actions/.github/workflows/task-def-app-deploy.yml@master
