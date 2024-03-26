@@ -45,7 +45,7 @@ jobs:
         id: get-all-instances
         run: |
           # get all task definitions for requested app
-          defs=$(aws ecs list-task-definitions | grep ${{ inputs.app }} | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq)
+          defs=$(aws ecs list-task-definitions --status ACTIVE | grep ${{ inputs.app }} | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq)
 
           echo "all listed services/task defs:"
           echo "${defs}"
