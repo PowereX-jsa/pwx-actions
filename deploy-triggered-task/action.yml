@@ -1,0 +1,155 @@
+on:
+  workflow_call:
+    secrets:
+      aws-access-key-id:
+        required: true
+        description: "set this to AWS_ACCESS_KEY_ID of your user"
+      aws-secret-access-key:
+        required: true
+        description: "set this to AWS_SECRET_ACCESS_KEY of your user"
+    inputs:
+      aws-region:
+        required: true
+        type: string
+        description: "set this to your preferred AWS region, e.g. us-west-1"
+      app:
+        required: true
+        type: string
+        description: "set this to your app name - service/task definition name, e.g. emsi - for deploying multiple instances of app 'emsi', or specific 'emsi-stm-dubnica' - for deploying only 1 specific instance)"
+      ecs-cluster:
+        required: true
+        type: string
+        description: "set this to your Amazon ECS cluster name, e.g. ecs-dev"
+      image:
+        required: true
+        type: string
+        description: "image to deploy to ecs in task def, e.g. 587619238227.dkr.ecr.eu-central-1.amazonaws.com/imbalance-service"
+
+jobs:
+  list-instances:
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_STEP_DEBUG: true
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      instances-matrix: ${{ steps.create-instance-matrix.outputs.instances-matrix }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+          mask-aws-account-id: false
+
+      - name: List instances
+        run: |
+          aws events list-rules --query "Rules[?starts_with(Name, '${{ inputs.app }}')]"  > list-rules.json
+
+      - name: Print list-rules
+        run: |
+          cat list-rules.json
+
+      - name: Print list-rules
+        run: |
+          jq -c 'map(.Name) | {instance: .}' list-rules.json > instances.json
+
+      - name: Print instances
+        run: |
+          cat instances.json
+
+      - name: Set output
+        id: create-instance-matrix
+        run: |
+          echo "instances-matrix=$(jq -c . instances.json)" >> "$GITHUB_STEP_SUMMARY"
+          echo "instances-matrix=$(jq -c . instances.json)" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: [ list-instances ]
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_STEP_DEBUG: true
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.list-instances.outputs.instances-matrix) }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+
+          # TODO
+          # mask id in logs -> should be true, turning of only for debugging
+          # mask-aws-account-id: true
+          mask-aws-account-id: false
+
+      # when running locally, you need to specify region with '--region eu-central-1'
+      # on github actions aws cli setup is done in previous step
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition --task-definition isom-scraper-triggered --query taskDefinition > task-definition.json
+          
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1.2.0
+        with:
+          task-definition: task-definition.json
+          container-name: main
+          image: ${{ inputs.image }}
+
+      - name: Print original task definition
+        run: |
+          cat ${{ steps.render-task-def.outputs.task-definition }}
+
+      - name: Prepair new task definition
+        run: |
+          cat ${{ steps.render-task-def.outputs.task-definition }} | jq 'del(.taskDefinitionArn) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.revision) | del(.registeredAt) | del(.registeredBy)' > task-definition-ready.json
+
+      - name: Print new task definition
+        run: |
+          cat task-definition-ready.json
+
+      - name: Register the new task definition
+        run: |
+          aws ecs register-task-definition --cli-input-json file://task-definition-ready.json > task-definition-registered.json
+
+      - name: Print registered task definition
+        run: |
+          cat task-definition-registered.json
+
+      - name: Print matrix.instance
+        run: |
+          echo ${{ matrix.instance }}
+
+      - name: Get targets by rule name
+        run: |
+          aws events list-targets-by-rule --rule ${{ matrix.instance }} > targets.json
+
+      - name: Print targets
+        run: |
+          cat targets.json
+
+      - name: Prepair new target
+        run: |
+          NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
+          echo "new-task-arn=$NEW_TASK_ARN"
+          jq --arg new_task_arn "$NEW_TASK_ARN" '.Targets[0].EcsParameters.TaskDefinitionArn = $new_task_arn' targets.json > targets-ready.json
+
+      - name: Print new target
+        run: |
+          cat targets-ready.json
+
+      - name: Update target
+        run: |
+          aws events put-targets --rule ${{ matrix.instance }}  --cli-input-json file://targets-ready.json > put-targets.json
+
+      - name: Print put-targets result
+        run: |
+          cat put-targets.json
