@@ -94,7 +94,7 @@ jobs:
       # on github actions aws cli setup is done in previous step
       - name: Download task definition
         run: |
-          aws ecs describe-task-definition --task-definition isom-scraper-triggered --query taskDefinition > task-definition.json
+          aws ecs describe-task-definition --task-definition ${{ inputs.app }} --query taskDefinition > task-definition.json
           
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: render-task-def
