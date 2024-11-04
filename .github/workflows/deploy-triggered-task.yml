@@ -95,7 +95,7 @@ jobs:
         run: |
           NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
           echo "new-task-arn=$NEW_TASK_ARN"
-          jq --arg new_task_arn "$NEW_TASK_ARN" '.Targets[0].EcsParameters.TaskDefinitionArn = $new_task_arn' targets.json > targets-ready.json
+          jq --arg new_task_arn "$NEW_TASK_ARN" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' targets.json > targets-ready.json
 
       - name: Print new target
         run: |
