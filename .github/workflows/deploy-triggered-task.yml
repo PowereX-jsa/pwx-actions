@@ -99,14 +99,13 @@ jobs:
           NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
           echo "new-task-arn=$NEW_TASK_ARN"
             for name in $(jq -r '.[]' schedules-names.json); do
-                jq --arg new_task_arn "$NEW_TASK_ARN" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' ${name}-targets.json > ${name}-targets-ready.json
-                cat ${name}-targets-ready.json
+              jq --arg new_task_arn "$NEW_TASK_ARN" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' ${name}-targets.json > ${name}-targets-ready.json
+              cat ${name}-targets-ready.json
             done
 
       - name: Update schedule with new targets
         run: |
-          aws scheduler update-schedule --name entsoe-scraper-actual --cli-input-json file://targets-ready.json > put-targets.json
-
-      - name: Print put-targets result
-        run: |
-          cat put-targets.json
+          for name in $(jq -r '.[]' schedules-names.json); do
+            aws scheduler update-schedule --name $name --cli-input-json file://${name}-targets-ready.json > put-targets-${name}.json
+            cat put-targets-${name}.json
+          done
