@@ -103,7 +103,8 @@ jobs:
 
       - name: Update target
         run: |
-          aws events put-targets --rule ${{ matrix.instance }}  --cli-input-json file://targets-ready.json > put-targets.json
+#          TODO all schedulers
+          aws scheduler update-schedule --name entsoe-scraper-actual --cli-input-json file://targets-ready.json > put-targets.json
 
       - name: Print put-targets result
         run: |
