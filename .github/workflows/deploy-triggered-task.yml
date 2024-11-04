@@ -83,9 +83,15 @@ jobs:
         run: |
           cat task-definition-registered.json
 
-      - name: Get targets by rule name
+      - name: Get names of all schedules
         run: |
-          aws scheduler get-schedule --name entsoe-scraper-actual | jq '{Target, ScheduleExpression, FlexibleTimeWindow}' > targets.json
+          aws scheduler list-schedules --query "Schedules[?starts_with(Name, '${{ inputs.app }}')].Name" > schedules-names.json
+
+      - name: Get targets by schedule name
+        run: |
+          for name in $(jq -r '.[]' schedules-names.json); do
+            aws scheduler get-schedule --name $name | jq '{Target, ScheduleExpression, FlexibleTimeWindow}' > ${name}-targets.json
+          done
 
       - name: Print targets
         run: |
