@@ -87,24 +87,23 @@ jobs:
         run: |
           aws scheduler list-schedules --query "Schedules[?starts_with(Name, '${{ inputs.app }}')].Name" > schedules-names.json
 
-      - name: Get targets by schedule name
+      - name: Get all targets by schedule name
         run: |
           for name in $(jq -r '.[]' schedules-names.json); do
             aws scheduler get-schedule --name $name | jq '{Target, ScheduleExpression, FlexibleTimeWindow}' > ${name}-targets.json
             cat ${name}-targets.json
           done
 
-      - name: Prepair new target
+      - name: Prepair new targets for all names
         run: |
           NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
           echo "new-task-arn=$NEW_TASK_ARN"
-          jq --arg new_task_arn "$NEW_TASK_ARN" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' targets.json > targets-ready.json
+            for name in $(jq -r '.[]' schedules-names.json); do
+                jq --arg new_task_arn "$NEW_TASK_ARN" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' ${name}-targets.json > ${name}-targets-ready.json
+                cat ${name}-targets-ready.json
+            done
 
-      - name: Print new target
-        run: |
-          cat targets-ready.json
-
-      - name: Update schedule with new target
+      - name: Update schedule with new targets
         run: |
           aws scheduler update-schedule --name entsoe-scraper-actual --cli-input-json file://targets-ready.json > put-targets.json
 
