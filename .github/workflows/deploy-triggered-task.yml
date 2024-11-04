@@ -101,9 +101,8 @@ jobs:
         run: |
           cat targets-ready.json
 
-      - name: Update target
+      - name: Update schedule with new target
         run: |
-#          TODO all schedulers
           aws scheduler update-schedule --name entsoe-scraper-actual --cli-input-json file://targets-ready.json > put-targets.json
 
       - name: Print put-targets result
