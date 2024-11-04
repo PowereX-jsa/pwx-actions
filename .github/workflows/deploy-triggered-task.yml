@@ -83,14 +83,8 @@ jobs:
         run: |
           cat task-definition-registered.json
 
-#      - name: Print matrix.instance
-#        run: |
-#          echo ${{ matrix.instance }}
-
       - name: Get targets by rule name
         run: |
-#          aws events list-targets-by-rule --rule ${{ matrix.instance }} > targets.json
-#               TODO actual to all
           aws scheduler get-schedule --name entsoe-scraper-actual | jq '{Target, ScheduleExpression, FlexibleTimeWindow}' > targets.json
 
       - name: Print targets
