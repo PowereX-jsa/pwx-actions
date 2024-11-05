@@ -65,7 +65,23 @@ jobs:
 
       - name: Print original task definition
         run: |
-          cat ${{ steps.render-task-def.outputs.task-definition }} > task-definition-registered.json
+          cat ${{ steps.render-task-def.outputs.task-definition }}
+
+      - name: Prepair new task definition
+        run: |
+          cat ${{ steps.render-task-def.outputs.task-definition }} | jq 'del(.taskDefinitionArn) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.revision) | del(.registeredAt) | del(.registeredBy)' > task-definition-ready.json
+
+      - name: Print new task definition
+        run: |
+          cat task-definition-ready.json
+
+      - name: Register the new task definition
+        run: |
+          aws ecs register-task-definition --cli-input-json file://task-definition-ready.json > task-definition-registered.json
+
+      - name: Print registered task definition
+        run: |
+          cat task-definition-registered.json
 
       - name: Get names of all schedules
         run: |
