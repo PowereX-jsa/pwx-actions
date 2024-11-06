@@ -99,7 +99,7 @@ jobs:
           NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
           echo "new-task-arn=$NEW_TASK_ARN"
             for name in $(jq -r '.[]' schedules-names.json); do
-              jq --arg new_task_arn "$NEW_TASK_ARN" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' | .ScheduleExpressionTimezone = "Europe/Bratislava"' ${name}-targets.json > ${name}-targets-ready.json
+              jq --arg new_task_arn "$NEW_TASK_ARN" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' ${name}-targets.json > ${name}-targets-ready.json
               cat ${name}-targets-ready.json
             done
 
