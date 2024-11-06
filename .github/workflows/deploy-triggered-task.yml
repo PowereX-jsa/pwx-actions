@@ -106,6 +106,7 @@ jobs:
       - name: Update schedule with new targets
         run: |
           for name in $(jq -r '.[]' schedules-names.json); do
-            aws scheduler update-schedule --name $name --cli-input-json file://${name}-targets-ready.json > put-targets-${name}.json
+            jq '.ScheduleExpressionTimezone = "Europe/Bratislava"' ${name}-targets-ready.json > ${name}-targets-ready-with-timezone.json
+            aws scheduler update-schedule --name $name --cli-input-json file://${name}-targets-ready-with-timezone.json > put-targets-${name}.json
             cat put-targets-${name}.json
           done
