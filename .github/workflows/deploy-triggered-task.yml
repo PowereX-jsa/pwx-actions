@@ -90,7 +90,7 @@ jobs:
       - name: Get all targets by schedule name
         run: |
           for name in $(jq -r '.[]' schedules-names.json); do
-            aws scheduler get-schedule --name $name | jq '{Target, ScheduleExpression, FlexibleTimeWindow}' > ${name}-targets.json
+            aws scheduler get-schedule --name $name | jq '{Target, ScheduleExpression, FlexibleTimeWindow, ScheduleExpressionTimezone}' > ${name}-targets.json
             cat ${name}-targets.json
           done
 
