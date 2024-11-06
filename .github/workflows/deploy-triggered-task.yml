@@ -103,11 +103,9 @@ jobs:
               cat ${name}-targets-ready.json
             done
 
-      # TODO
-      # hardcoded timezone Europe/Bratislava - without this, the step will change timezone to UTC
       - name: Update schedule with new targets
         run: |
           for name in $(jq -r '.[]' schedules-names.json); do
-            aws scheduler update-schedule --name $name --cli-input-json file://${name}-targets.json > put-targets-${name}.json
+            aws scheduler update-schedule --name $name --cli-input-json file://${name}-targets-ready.json > put-targets-${name}.json
             cat put-targets-${name}.json
           done
