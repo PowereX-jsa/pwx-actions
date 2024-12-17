@@ -1,0 +1,95 @@
+on:
+  workflow_call:
+    secrets:
+      aws-access-key-id:
+        required: true
+        description: "Set this to AWS_ACCESS_KEY_ID of your user"
+      aws-secret-access-key:
+        required: true
+        description: "Set this to AWS_SECRET_ACCESS_KEY of your user"
+    inputs:
+      aws-region:
+        required: true
+        type: string
+        description: "Set this to your preferred AWS region, e.g., eu-central-1"
+      app:
+        required: true
+        type: string
+        description: "Set this to your app name (task definition name), e.g., id-trading-api"
+      ecs-cluster:
+        required: true
+        type: string
+        description: "Set this to your Amazon ECS cluster name, e.g., ecs-dev"
+      image:
+        required: true
+        type: string
+        description: "Image to deploy to ECS in task definition, e.g., 587619238227.dkr.ecr.eu-central-1.amazonaws.com/id-trading-api:latest"
+
+jobs:
+  list-instances:
+    runs-on: ubuntu-latest
+    outputs:
+      instances-matrix: ${{ steps.set-matrix.outputs.instances-matrix }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: List ECS Scheduled Tasks
+        id: list-instances
+        run: |
+          SCHEDULE_NAMES=$(aws scheduler list-schedules --query "Schedules[?starts_with(Name, '${{ inputs.app }}')].Name" --output json)
+          echo "SCHEDULE_NAMES=${SCHEDULE_NAMES}" >> $GITHUB_ENV
+
+          # prepare instances matrix
+          echo "{\"instances\": $SCHEDULE_NAMES }" > instances-matrix.json
+
+      - name: Set instances matrix
+        id: set-matrix
+        run: |
+          echo "instances-matrix=$(cat instances-matrix.json)" >> $GITHUB_OUTPUT
+
+  deploy:
+    needs: [list-instances]
+    strategy:
+      fail-fast: false
+      matrix:
+        instance: ${{ fromJson(needs.list-instances.outputs.instances-matrix).instances }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ inputs.app }} --query 'taskDefinition' > task-definition.json
+
+      - name: Update task definition with new image
+        run: |
+          jq --arg IMAGE "${{ inputs.image }}" '.containerDefinitions[0].image = $IMAGE' task-definition.json > task-def-updated.json
+
+      - name: Register new task definition
+        id: register-task-def
+        run: |
+          # Remove unnecessary fields
+          jq 'del(.status, .revision, .taskDefinitionArn, .requiresAttributes, .compatibilities, .registeredAt, .deregisteredAt, .registeredBy)' task-def-updated.json > task-def-to-register.json
+          aws ecs register-task-definition --cli-input-json file://task-def-to-register.json > task-def-result.json
+          TASK_DEF_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-def-result.json)
+          echo "TASK_DEF_ARN=$TASK_DEF_ARN" >> $GITHUB_ENV
+
+      - name: Update schedule with new task definition
+        run: |
+          SCHEDULE_NAME=${{ matrix.instance }}
+          aws scheduler get-schedule --name "$SCHEDULE_NAME" > current-schedule.json
+          jq --arg TASK_DEF_ARN "$TASK_DEF_ARN" '.Target.EcsParameters.TaskDefinitionArn = $TASK_DEF_ARN' current-schedule.json > updated-schedule.json
+          aws scheduler update-schedule --name "$SCHEDULE_NAME" --cli-input-json file://updated-schedule.json
