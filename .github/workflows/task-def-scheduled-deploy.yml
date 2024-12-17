@@ -1,0 +1,91 @@
+on:
+  workflow_call:
+    secrets:
+      aws-access-key-id:
+        required: true
+        description: "set this to AWS_ACCESS_KEY_ID of your user"
+      aws-secret-access-key:
+        required: true
+        description: "set this to AWS_SECRET_ACCESS_KEY of your user"
+    inputs:
+      aws-region:
+        required: true
+        type: string
+        description: "set this to your preferred AWS region, e.g. us-west-1"
+      schedule-name:
+        required: true
+        type: string
+        description: "set this to your EventBridge scheduler name"
+      ecs-task-definition:
+        required: true
+        type: string
+        description: "set this to your Amazon task definition family name"
+      ecs-cluster:
+        required: true
+        type: string
+        description: "set this to your Amazon ECS cluster name, e.g. ecs-dev"
+      image:
+        required: true
+        type: string
+        description: "image to deploy to ecs in task def"
+      container-name:
+        required: false
+        type: string
+        default: main
+        description: "set this to the name of the container in the task definition"
+      task-def-filename:
+        required: false
+        type: string
+        default: task-definition.json
+        description: "set name of downloaded ecs task definition json filename"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_STEP_DEBUG: true
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+          mask-aws-account-id: false
+
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ inputs.ecs-task-definition }} --query taskDefinition > ${{ inputs.task-def-filename }}
+
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1.2.0
+        with:
+          task-definition: ${{ inputs.task-def-filename }}
+          container-name: ${{ inputs.container-name }}
+          image: ${{ inputs.image }}
+
+      - name: Prepare new task definition
+        run: |
+          cat ${{ steps.render-task-def.outputs.task-definition }} | jq 'del(.taskDefinitionArn) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.revision) | del(.registeredAt) | del(.registeredBy)' > task-definition-ready.json
+
+      - name: Register the new task definition
+        run: |
+          aws ecs register-task-definition --cli-input-json file://task-definition-ready.json > task-definition-registered.json
+
+      - name: Get schedule target
+        run: |
+          aws scheduler get-schedule --name ${{ inputs.schedule-name }} | jq '{Target, ScheduleExpression, FlexibleTimeWindow, ScheduleExpressionTimezone}' > schedule-target.json
+
+      - name: Update target with new task definition
+        run: |
+          NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
+          jq --arg new_task_arn "$NEW_TASK_ARN" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' schedule-target.json > schedule-target-ready.json
+
+      - name: Update schedule
+        run: |
+          aws scheduler update-schedule --name ${{ inputs.schedule-name }} --cli-input-json file://schedule-target-ready.json
