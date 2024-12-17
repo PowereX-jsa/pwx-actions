@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.list-schedules.outputs.schedules-matrix) }}
-    uses: PowereX-jsa/pwx-actions/.github/workflows/task-def-scheduled-deploy.yml@master
+    uses: PowereX-jsa/pwx-actions/.github/workflows/task-def-scheduled-deploy.yml@feature/#10_deploy_multiple_scheduled_instances
     secrets:
       aws-access-key-id: ${{ secrets.aws-access-key-id }}
       aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
