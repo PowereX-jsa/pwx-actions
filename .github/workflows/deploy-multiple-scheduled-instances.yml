@@ -41,9 +41,10 @@ jobs:
       - name: List ECS Scheduled Tasks
         id: list-instances
         run: |
-          SCHEDULE_NAMES=$(aws scheduler list-schedules --query "Schedules[?starts_with(Name, '${{ inputs.app }}')].Name" --output json)
+          SCHEDULE_NAMES=$(aws scheduler list-schedules --query "Schedules[?contains(Name, '${{ inputs.app }}')].Name" --output json)
+          echo "SCHEDULE_NAMES=${SCHEDULE_NAMES}"
           echo "SCHEDULE_NAMES=${SCHEDULE_NAMES}" >> $GITHUB_ENV
-
+      
           # prepare instances matrix
           echo "{\"instances\": $SCHEDULE_NAMES }" > instances-matrix.json
 
