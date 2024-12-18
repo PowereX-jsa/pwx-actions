@@ -15,7 +15,7 @@ on:
       app:
         required: true
         type: string
-        description: "set this to your app name prefix for scheduled tasks"
+        description: "set this to your app name - task definition name"
       ecs-cluster:
         required: true
         type: string
@@ -26,10 +26,10 @@ on:
         description: "image to deploy to ecs in task def"
 
 jobs:
-  list-schedules:
+  list-scheduled-tasks:
     runs-on: ubuntu-latest
     outputs:
-      schedules-matrix: ${{ steps.get-schedules.outputs.matrix }}
+      tasks-matrix: ${{ steps.get-tasks.outputs.matrix }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -40,17 +40,20 @@ jobs:
           mask-aws-account-id: false
 
       - name: Get scheduled tasks
-        id: get-schedules
+        id: get-tasks
         run: |
-          SCHEDULES=$(aws scheduler list-schedules --query "Schedules[?starts_with(Name, '${{ inputs.app }}')].Name" | jq -c '{"schedule": .}')
-          echo "matrix=${SCHEDULES}" >> $GITHUB_OUTPUT
+          TASKS=$(aws scheduler list-schedules --query "Schedules[?starts_with(Name, '${{ inputs.app }}')].Name" --output json)
+          echo "matrix={\"task\":${TASKS}}" >> $GITHUB_OUTPUT
 
-  deploy-schedule:
-    needs: [list-schedules]
+  deploy:
+    needs: [list-scheduled-tasks]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.list-schedules.outputs.schedules-matrix) }}
+      matrix: ${{ fromJson(needs.list-scheduled-tasks.outputs.tasks-matrix) }}
+    env:
+      ACTIONS_STEP_DEBUG: true
+    
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -63,22 +66,33 @@ jobs:
       - name: Download task definition
         run: |
           aws ecs describe-task-definition --task-definition ${{ inputs.app }} --query taskDefinition > task-definition.json
+          
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1.2.0
+        with:
+          task-definition: task-definition.json
+          container-name: main
+          image: ${{ inputs.image }}
 
       - name: Prepare new task definition
         run: |
-          cat task-definition.json | jq 'del(.taskDefinitionArn) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.revision) | del(.registeredAt) | del(.registeredBy)' > task-definition-ready.json
+          cat ${{ steps.render-task-def.outputs.task-definition }} | jq 'del(.taskDefinitionArn) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.revision) | del(.registeredAt) | del(.registeredBy)' > task-definition-ready.json
 
-      - name: Register new task definition
-        id: register-task-def
+      - name: Register the new task definition
         run: |
           aws ecs register-task-definition --cli-input-json file://task-definition-ready.json > task-definition-registered.json
-          echo "task_definition_arn=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)" >> $GITHUB_OUTPUT
 
-      - name: Get schedule configuration
+      - name: Get schedule target
         run: |
-          aws scheduler get-schedule --name ${{ matrix.schedule }} | jq '{Target, ScheduleExpression, FlexibleTimeWindow, ScheduleExpressionTimezone}' > schedule-target.json
+          aws scheduler get-schedule --name ${{ matrix.task }} | jq '{Target, ScheduleExpression, FlexibleTimeWindow, ScheduleExpressionTimezone}' > schedule-target.json
 
-      - name: Update schedule with new task definition
+      - name: Update target with new task definition
         run: |
-          jq --arg new_task_arn "${{ steps.register-task-def.outputs.task_definition_arn }}" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' schedule-target.json > schedule-target-ready.json
-          aws scheduler update-schedule --name ${{ matrix.schedule }} --cli-input-json file://schedule-target-ready.json
+          NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
+          jq --arg new_task_arn "$NEW_TASK_ARN" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' schedule-target.json > schedule-target-ready.json
+
+      - name: Update schedule
+        run: |
+          aws scheduler update-schedule --name ${{ matrix.task }} --cli-input-json file://schedule-target-ready.json > update-result.json
+          cat update-result.json
