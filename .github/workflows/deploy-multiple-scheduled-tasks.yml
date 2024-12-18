@@ -42,8 +42,16 @@ jobs:
       - name: Get scheduled tasks
         id: get-tasks
         run: |
-          TASKS=$(aws scheduler list-schedules --query "Schedules[?starts_with(Name, '${{ inputs.app }}')].Name" --output json)
-          echo "matrix={\"task\":${TASKS}}" >> $GITHUB_OUTPUT
+          echo "Listing EventBridge rules with prefix ${{ inputs.app }}..."
+          TASKS=$(aws events list-rules --name-prefix "${{ inputs.app }}" --query "Rules[].Name" --output json)
+          echo "Found tasks: $TASKS"
+          
+          if [ "$TASKS" == "[]" ]; then
+            echo "No tasks found with prefix ${{ inputs.app }}"
+            exit 1
+          else
+            echo "matrix={\"task\":${TASKS}}" >> $GITHUB_OUTPUT
+          fi
 
   deploy:
     needs: [list-scheduled-tasks]
@@ -83,16 +91,15 @@ jobs:
         run: |
           aws ecs register-task-definition --cli-input-json file://task-definition-ready.json > task-definition-registered.json
 
-      - name: Get schedule target
+      - name: Get current target
         run: |
-          aws scheduler get-schedule --name ${{ matrix.task }} | jq '{Target, ScheduleExpression, FlexibleTimeWindow, ScheduleExpressionTimezone}' > schedule-target.json
+          aws events list-targets-by-rule --rule ${{ matrix.task }} > rule-target.json
+          echo "Current target configuration:"
+          cat rule-target.json
 
       - name: Update target with new task definition
         run: |
           NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
-          jq --arg new_task_arn "$NEW_TASK_ARN" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' schedule-target.json > schedule-target-ready.json
-
-      - name: Update schedule
-        run: |
-          aws scheduler update-schedule --name ${{ matrix.task }} --cli-input-json file://schedule-target-ready.json > update-result.json
-          cat update-result.json
+          jq --arg new_task_arn "$NEW_TASK_ARN" '.Targets[].EcsParameters.TaskDefinitionArn = $new_task_arn' rule-target.json > new-target.json
+          TARGETS=$(jq -c '.Targets' new-target.json)
+          aws events put-targets --rule ${{ matrix.task }} --targets "$TARGETS"
