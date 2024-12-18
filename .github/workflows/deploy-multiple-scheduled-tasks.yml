@@ -43,15 +43,18 @@ jobs:
         id: get-tasks
         run: |
           echo "Listing EventBridge rules with prefix ${{ inputs.app }}..."
-          TASKS=$(aws events list-rules --name-prefix "${{ inputs.app }}" --query "Rules[].Name" --output json)
-          echo "Found tasks: $TASKS"
+          aws events list-rules --name-prefix "${{ inputs.app }}" --query "Rules[].Name" --output json > tasks.json
+          echo "{\"task\": $(cat tasks.json)}" > matrix.json
           
-          if [ "$TASKS" == "[]" ]; then
+          if [ "$(cat tasks.json)" == "[]" ]; then
             echo "No tasks found with prefix ${{ inputs.app }}"
             exit 1
           else
-            echo "matrix={\"task\":${TASKS}}" >> $GITHUB_OUTPUT
+            echo "matrix=$(cat matrix.json)" >> $GITHUB_OUTPUT
           fi
+          
+          echo "Generated matrix:"
+          cat matrix.json
 
   deploy:
     needs: [list-scheduled-tasks]
