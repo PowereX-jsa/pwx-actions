@@ -76,9 +76,23 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
           mask-aws-account-id: false
 
-      - name: Download task definition
+      - name: List task definitions and download the correct one
         run: |
-          aws ecs describe-task-definition --task-definition ${{ inputs.app }} --query taskDefinition > task-definition.json
+          echo "Listing task definitions with prefix ${{ inputs.app }}..."
+          
+          TASK_DEFS=$(aws ecs list-task-definition-families --family-prefix "${{ inputs.app }}" --status ACTIVE --query "families[0]" --output text)
+          
+          if [ "$TASK_DEFS" == "None" ]; then
+            echo "No task definition found with prefix ${{ inputs.app }}"
+            exit 1
+          fi
+          
+          echo "Found task definition family: $TASK_DEFS"
+          
+          aws ecs describe-task-definition --task-definition "$TASK_DEFS" --query taskDefinition > task-definition.json
+          
+          echo "Downloaded task definition:"
+          cat task-definition.json          
           
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: render-task-def
