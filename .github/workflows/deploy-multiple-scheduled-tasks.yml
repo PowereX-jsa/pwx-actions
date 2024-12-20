@@ -80,13 +80,11 @@ jobs:
         run: |
           echo "Listing task definitions with prefix ${{ inputs.app }}..."
           
-          # Get all task definitions for requested app
           defs=$(aws ecs list-task-definitions --status ACTIVE | grep "${{ inputs.app }}" | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq)
           
           echo "All listed task definitions:"
           echo "${defs}"
           
-          # Take the first task definition (or modify this logic as needed)
           TASK_DEF=$(echo "${defs}" | head -n 1)
           
           if [ -z "$TASK_DEF" ]; then
@@ -96,7 +94,6 @@ jobs:
           
           echo "Using task definition: $TASK_DEF"
           
-          # Get the task definition
           aws ecs describe-task-definition --task-definition "$TASK_DEF" --query taskDefinition > task-definition.json
           
           echo "Downloaded task definition:"
