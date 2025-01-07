@@ -1,0 +1,133 @@
+on:
+  workflow_call:
+    secrets:
+      aws-access-key-id:
+        required: true
+        description: "set this to AWS_ACCESS_KEY_ID of your user"
+      aws-secret-access-key:
+        required: true
+        description: "set this to AWS_SECRET_ACCESS_KEY of your user"
+    inputs:
+      aws-region:
+        required: true
+        type: string
+        description: "set this to your preferred AWS region, e.g. us-west-1"
+      app:
+        required: true
+        type: string
+        description: "set this to your app name - task definition name"
+      ecs-cluster:
+        required: true
+        type: string
+        description: "set this to your Amazon ECS cluster name, e.g. ecs-dev"
+      image:
+        required: true
+        type: string
+        description: "image to deploy to ecs in task def"
+
+jobs:
+  list-scheduled-tasks:
+    runs-on: ubuntu-latest
+    outputs:
+      tasks-matrix: ${{ steps.get-tasks.outputs.matrix }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+          mask-aws-account-id: false
+
+      - name: Get scheduled tasks
+        id: get-tasks
+        run: |
+          echo "Listing EventBridge rules with prefix ${{ inputs.app }}..."
+          
+          aws events list-rules --name-prefix "${{ inputs.app }}" --query "Rules[].Name" --output json | jq -c '.' > tasks.json
+          
+          jq -c '{"task": .}' tasks.json > matrix.json
+          
+          if [ "$(cat tasks.json)" == "[]" ]; then
+            echo "No tasks found with prefix ${{ inputs.app }}"
+            exit 1
+          else
+            echo "matrix=$(cat matrix.json | tr -d '\n')" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "Generated matrix:"
+          cat matrix.json
+
+  deploy:
+    needs: [list-scheduled-tasks]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.list-scheduled-tasks.outputs.tasks-matrix) }}
+    env:
+      ACTIONS_STEP_DEBUG: true
+    
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+          mask-aws-account-id: false
+
+      - name: List and download task definition
+        run: |
+          echo "Listing task definitions with prefix ${{ inputs.app }}..."
+          
+          defs=$(aws ecs list-task-definitions --status ACTIVE | grep "${{ inputs.app }}" | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq)
+          
+          echo "All listed task definitions:"
+          echo "${defs}"
+          
+          TASK_DEF=$(echo "${defs}" | head -n 1)
+          
+          if [ -z "$TASK_DEF" ]; then
+            echo "No task definition found with prefix ${{ inputs.app }}"
+            exit 1
+          fi
+          
+          echo "Using task definition: $TASK_DEF"
+          
+          aws ecs describe-task-definition --task-definition "$TASK_DEF" --query taskDefinition > task-definition.json
+          
+          echo "Downloaded task definition:"
+          cat task-definition.json       
+          
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1.2.0
+        with:
+          task-definition: task-definition.json
+          container-name: main
+          image: ${{ inputs.image }}
+
+      - name: Prepare new task definition
+        run: |
+          cat ${{ steps.render-task-def.outputs.task-definition }} | jq 'del(.taskDefinitionArn) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.revision) | del(.registeredAt) | del(.registeredBy)' > task-definition-ready.json
+
+      - name: Register the new task definition
+        run: |
+          aws ecs register-task-definition --cli-input-json file://task-definition-ready.json > task-definition-registered.json
+
+      - name: Get current target
+        run: |
+          aws events list-targets-by-rule --rule ${{ matrix.task }} > rule-target.json
+          echo "Current target configuration:"
+          cat rule-target.json
+
+      - name: Update target with new task definition
+        run: |
+          NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
+          jq --arg new_task_arn "$NEW_TASK_ARN" '.Targets[].EcsParameters.TaskDefinitionArn = $new_task_arn' rule-target.json > new-target.json
+
+          echo "New target configuration:"
+          cat new-target.json
+          
+          TARGETS=$(jq -c '.Targets' new-target.json)
+          aws events put-targets --rule ${{ matrix.task }} --targets "$TARGETS"
