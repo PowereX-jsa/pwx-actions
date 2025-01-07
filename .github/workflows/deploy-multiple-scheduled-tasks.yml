@@ -125,5 +125,9 @@ jobs:
         run: |
           NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
           jq --arg new_task_arn "$NEW_TASK_ARN" '.Targets[].EcsParameters.TaskDefinitionArn = $new_task_arn' rule-target.json > new-target.json
+
+          echo "New target configuration:"
+          cat new-target.json
+          
           TARGETS=$(jq -c '.Targets' new-target.json)
           aws events put-targets --rule ${{ matrix.task }} --targets "$TARGETS"
