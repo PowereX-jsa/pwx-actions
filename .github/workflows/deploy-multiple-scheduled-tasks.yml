@@ -80,13 +80,9 @@ jobs:
         run: |
           echo "Processing scheduled task: ${{ matrix.task }}"
 
-          SPECIFIC_TASK=$(echo "${{ matrix.task }}" | sed 's/^id-trading-//')
-          echo "Specific task name: $SPECIFIC_TASK"
+          TASK_DEF=$(echo "${{ matrix.task }}" | sed 's/_[0-9]*$//')
+          echo "Extracted task definition name: $TASK_DEF"
 
-          TASK_DEF="id-trading-$SPECIFIC_TASK"
-          echo "Looking for task definition: $TASK_DEF"
-          
-          # Verify the task definition exists
           TASK_EXISTS=$(aws ecs list-task-definitions --family-prefix "$TASK_DEF" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
           
           if [ "$TASK_EXISTS" -eq "0" ]; then
@@ -100,7 +96,7 @@ jobs:
           
           echo "Downloaded task definition:"
           cat task-definition.json
-          
+
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: render-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1.2.0
