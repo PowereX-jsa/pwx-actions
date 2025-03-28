@@ -78,17 +78,19 @@ jobs:
 
       - name: List and download task definition
         run: |
-          echo "Listing task definitions with prefix ${{ inputs.app }}..."
+          echo "Processing scheduled task: ${{ matrix.task }}"
+
+          SPECIFIC_TASK=$(echo "${{ matrix.task }}" | sed 's/^id-trading-//')
+          echo "Specific task name: $SPECIFIC_TASK"
+
+          TASK_DEF="id-trading-$SPECIFIC_TASK"
+          echo "Looking for task definition: $TASK_DEF"
           
-          defs=$(aws ecs list-task-definitions --status ACTIVE | grep "${{ inputs.app }}" | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq)
+          # Verify the task definition exists
+          TASK_EXISTS=$(aws ecs list-task-definitions --family-prefix "$TASK_DEF" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
           
-          echo "All listed task definitions:"
-          echo "${defs}"
-          
-          TASK_DEF=$(echo "${defs}" | head -n 1)
-          
-          if [ -z "$TASK_DEF" ]; then
-            echo "No task definition found with prefix ${{ inputs.app }}"
+          if [ "$TASK_EXISTS" -eq "0" ]; then
+            echo "No task definition found with name $TASK_DEF"
             exit 1
           fi
           
@@ -97,7 +99,7 @@ jobs:
           aws ecs describe-task-definition --task-definition "$TASK_DEF" --query taskDefinition > task-definition.json
           
           echo "Downloaded task definition:"
-          cat task-definition.json       
+          cat task-definition.json
           
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: render-task-def
