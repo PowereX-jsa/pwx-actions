@@ -83,75 +83,75 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
           mask-aws-account-id: false
 
-      - name: Get task definition name and type
-        id: get-task-info
+      - name: Determine task type
+        id: determine-task-type
         run: |
-          # Check if this is an EventBridge rule
           if aws events describe-rule --name "${{ matrix.task }}" 2>/dev/null; then
             echo "task_type=rule" >> $GITHUB_OUTPUT
-            
-            # Get the target and extract task definition ARN 
-            aws events list-targets-by-rule --rule ${{ matrix.task }} > rule-target.json
-            TASK_DEF_ARN=$(jq -r '.Targets[0].EcsParameters.TaskDefinitionArn' rule-target.json)
-            
-            if [ -n "$TASK_DEF_ARN" ] && [ "$TASK_DEF_ARN" != "null" ]; then
-              # Extract the task definition name from the ARN
-              TASK_DEF=$(echo "$TASK_DEF_ARN" | cut -d'/' -f2 | cut -d':' -f1)
-            else
-              # Try to find task definition by matching name pattern
-              echo "No task definition ARN found in rule target, searching by name..."
-              # Extract base name without unique identifier
-              BASE_NAME=$(echo "${{ matrix.task }}" | sed -E 's/[-_][0-9]+[^-_]*$//')
-              # List all task definitions with the base name
-              MATCHING_TASKS=$(aws ecs list-task-definitions --family-prefix "$BASE_NAME" --status ACTIVE --query 'taskDefinitionArns[].split("/")[1]' --output json)
-              # Use the first match if available
-              if [ "$MATCHING_TASKS" != "[]" ]; then
-                TASK_DEF=$(echo $MATCHING_TASKS | jq -r '.[0] | split(":")[0]')
-              else
-                # As last resort, use the app name
-                TASK_DEF="${{ inputs.app }}"
-              fi
-            fi
-          
-          # Check if this is an EventBridge schedule
           elif aws scheduler get-schedule --name "${{ matrix.task }}" 2>/dev/null; then
             echo "task_type=schedule" >> $GITHUB_OUTPUT
-            
-            # Get the schedule details and extract task definition ARN
-            aws scheduler get-schedule --name "${{ matrix.task }}" > schedule.json
-            TASK_DEF_ARN=$(jq -r '.Target.EcsParameters.TaskDefinitionArn' schedule.json)
-            
-            if [ -n "$TASK_DEF_ARN" ] && [ "$TASK_DEF_ARN" != "null" ]; then
-              # Extract the task definition name from the ARN
-              TASK_DEF=$(echo "$TASK_DEF_ARN" | cut -d'/' -f2 | cut -d':' -f1)
-            else
-              # Try to find task definition by matching name pattern
-              echo "No task definition ARN found in schedule target, searching by name..."
-              # Extract base name without unique identifier
-              BASE_NAME=$(echo "${{ matrix.task }}" | sed -E 's/[-_][0-9]+[^-_]*$//')
-              # List all task definitions with the base name
-              MATCHING_TASKS=$(aws ecs list-task-definitions --family-prefix "$BASE_NAME" --status ACTIVE --query 'taskDefinitionArns[].split("/")[1]' --output json)
-              # Use the first match if available
-              if [ "$MATCHING_TASKS" != "[]" ]; then
-                TASK_DEF=$(echo $MATCHING_TASKS | jq -r '.[0] | split(":")[0]')
-              else
-                # As last resort, use the app name
-                TASK_DEF="${{ inputs.app }}"
-              fi
-            fi
-          
           else
-            # Direct task definition
             echo "task_type=taskdef" >> $GITHUB_OUTPUT
-            TASK_DEF="${{ inputs.app }}"
+          fi
+
+      - name: Process EventBridge Rule
+        if: steps.determine-task-type.outputs.task_type == 'rule'
+        id: process-rule
+        run: |
+          echo "Processing scheduled task: ${{ matrix.task }}"
+
+          TASK_DEF=$(echo "${{ matrix.task }}" | sed 's/_[0-9]*$//')
+          echo "Extracted task definition name: $TASK_DEF"
+
+          TASK_EXISTS=$(aws ecs list-task-definitions --family-prefix "$TASK_DEF" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
+          
+          if [ "$TASK_EXISTS" -eq "0" ]; then
+            echo "No task definition found with name $TASK_DEF"
+            exit 1
           fi
           
-          echo "task_def=$TASK_DEF" >> $GITHUB_OUTPUT
           echo "Using task definition: $TASK_DEF"
+          echo "task_def=$TASK_DEF" >> $GITHUB_OUTPUT
+
+      - name: Process EventBridge Scheduler
+        if: steps.determine-task-type.outputs.task_type == 'schedule'
+        id: process-schedule
+        run: |
+          echo "Processing scheduled task: ${{ matrix.task }}"
+
+          # Use the same pattern as for rules but with different separator
+          TASK_DEF=$(echo "${{ matrix.task }}" | sed 's/-[0-9]*$//')
+          echo "Extracted task definition name: $TASK_DEF"
+
+          TASK_EXISTS=$(aws ecs list-task-definitions --family-prefix "$TASK_DEF" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
+          
+          if [ "$TASK_EXISTS" -eq "0" ]; then
+            echo "No task definition found with name $TASK_DEF"
+            exit 1
+          fi
+          
+          echo "Using task definition: $TASK_DEF"
+          echo "task_def=$TASK_DEF" >> $GITHUB_OUTPUT
+
+      - name: Process Direct Task Definition
+        if: steps.determine-task-type.outputs.task_type == 'taskdef'
+        id: process-taskdef
+        run: |
+          echo "Processing task definition directly: ${{ matrix.task }}"
+          TASK_DEF="${{ matrix.task }}"
+          echo "Using task definition: $TASK_DEF"
+          echo "task_def=$TASK_DEF" >> $GITHUB_OUTPUT
 
       - name: Download task definition
         run: |
-          TASK_DEF="${{ steps.get-task-info.outputs.task_def }}"
+          if [ "${{ steps.determine-task-type.outputs.task_type }}" == "rule" ]; then
+            TASK_DEF="${{ steps.process-rule.outputs.task_def }}"
+          elif [ "${{ steps.determine-task-type.outputs.task_type }}" == "schedule" ]; then
+            TASK_DEF="${{ steps.process-schedule.outputs.task_def }}"
+          else
+            TASK_DEF="${{ steps.process-taskdef.outputs.task_def }}"
+          fi
+          
           aws ecs describe-task-definition --task-definition "$TASK_DEF" --query taskDefinition > task-definition.json
           echo "Downloaded task definition for $TASK_DEF"
 
@@ -174,25 +174,34 @@ jobs:
           echo "new_task_arn=$NEW_TASK_ARN" >> $GITHUB_ENV
 
       - name: Update EventBridge Rule
-        if: steps.get-task-info.outputs.task_type == 'rule'
+        if: steps.determine-task-type.outputs.task_type == 'rule'
         run: |
           aws events list-targets-by-rule --rule ${{ matrix.task }} > rule-target.json
+          echo "Current target configuration:"
+          cat rule-target.json
+          
           jq --arg new_task_arn "${{ env.new_task_arn }}" '.Targets[].EcsParameters.TaskDefinitionArn = $new_task_arn' rule-target.json > new-target.json
+          
+          echo "New target configuration:"
+          cat new-target.json
+          
           TARGETS=$(jq -c '.Targets' new-target.json)
           aws events put-targets --rule ${{ matrix.task }} --targets "$TARGETS"
 
       - name: Update EventBridge Scheduler
-        if: steps.get-task-info.outputs.task_type == 'schedule'
+        if: steps.determine-task-type.outputs.task_type == 'schedule'
         run: |
           aws scheduler get-schedule --name "${{ matrix.task }}" > schedule.json
+          echo "Current schedule configuration:"
+          cat schedule.json
           
           # Create updated target with new task definition ARN
           jq --arg new_task_arn "${{ env.new_task_arn }}" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' schedule.json > updated-target.json
-          TARGET=$(jq '.Target' updated-target.json)
+          TARGET=$(jq -c '.Target' updated-target.json)
           
           # Get other required parameters
           SCHEDULE_EXPRESSION=$(jq -r '.ScheduleExpression' schedule.json)
-          FLEX_TIME_WINDOW=$(jq '.FlexibleTimeWindow' schedule.json)
+          FLEX_TIME_WINDOW=$(jq -c '.FlexibleTimeWindow' schedule.json)
           
           # Update the schedule
           aws scheduler update-schedule \
