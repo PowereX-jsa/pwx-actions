@@ -44,16 +44,23 @@ jobs:
         run: |
           echo "Listing EventBridge rules with prefix ${{ inputs.app }}..."
           
+          # Try standard EventBridge rules first
           aws events list-rules --name-prefix "${{ inputs.app }}" --query "Rules[].Name" --output json | jq -c '.' > tasks.json
           
-          jq -c '{"task": .}' tasks.json > matrix.json
-          
+          # If no results, try EventBridge Scheduler
           if [ "$(cat tasks.json)" == "[]" ]; then
-            echo "No tasks found with prefix ${{ inputs.app }}"
-            exit 1
-          else
-            echo "matrix=$(cat matrix.json | tr -d '\n')" >> $GITHUB_OUTPUT
+            echo "No EventBridge rules found, checking EventBridge Scheduler..."
+            aws scheduler list-schedules --name-prefix "${{ inputs.app }}" --query "Schedules[].Name" --output json | jq -c '.' > tasks.json
           fi
+          
+          # If still no results, just try to update the task definition directly
+          if [ "$(cat tasks.json)" == "[]" ]; then
+            echo "No scheduled tasks found, will try to update task definition directly"
+            echo "[\"${{ inputs.app }}\"]" > tasks.json
+          fi
+          
+          jq -c '{"task": .}' tasks.json > matrix.json
+          echo "matrix=$(cat matrix.json | tr -d '\n')" >> $GITHUB_OUTPUT
           
           echo "Generated matrix:"
           cat matrix.json
@@ -76,26 +83,33 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
           mask-aws-account-id: false
 
-      - name: List and download task definition
+      - name: Get task definition name
+        id: get-task-name
         run: |
-          echo "Processing scheduled task: ${{ matrix.task }}"
-
-          TASK_DEF=$(echo "${{ matrix.task }}" | sed 's/_[0-9]*$//')
-          echo "Extracted task definition name: $TASK_DEF"
-
-          TASK_EXISTS=$(aws ecs list-task-definitions --family-prefix "$TASK_DEF" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
-          
-          if [ "$TASK_EXISTS" -eq "0" ]; then
-            echo "No task definition found with name $TASK_DEF"
-            exit 1
+          # Check if this is an EventBridge rule
+          if aws events describe-rule --name "${{ matrix.task }}" 2>/dev/null; then
+            # It's a rule
+            echo "task_type=rule" >> $GITHUB_OUTPUT
+            TASK_DEF=$(echo "${{ matrix.task }}" | sed 's/_[0-9]*$//')
+          # Check if this is an EventBridge schedule
+          elif aws scheduler get-schedule --name "${{ matrix.task }}" 2>/dev/null; then
+            echo "task_type=schedule" >> $GITHUB_OUTPUT
+            TASK_DEF=$(echo "${{ matrix.task }}" | sed 's/-[0-9]*$//')
+          else
+            # Direct task definition
+            echo "task_type=taskdef" >> $GITHUB_OUTPUT
+            TASK_DEF="${{ matrix.task }}"
           fi
           
+          echo "task_def=$TASK_DEF" >> $GITHUB_OUTPUT
           echo "Using task definition: $TASK_DEF"
+
+      - name: Download task definition
+        run: |
+          TASK_DEF="${{ steps.get-task-name.outputs.task_def }}"
           
           aws ecs describe-task-definition --task-definition "$TASK_DEF" --query taskDefinition > task-definition.json
-          
-          echo "Downloaded task definition:"
-          cat task-definition.json
+          echo "Downloaded task definition."
 
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: render-task-def
@@ -112,20 +126,20 @@ jobs:
       - name: Register the new task definition
         run: |
           aws ecs register-task-definition --cli-input-json file://task-definition-ready.json > task-definition-registered.json
+          NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
+          echo "new_task_arn=$NEW_TASK_ARN" >> $GITHUB_ENV
 
-      - name: Get current target
+      - name: Update EventBridge Rule
+        if: steps.get-task-name.outputs.task_type == 'rule'
         run: |
           aws events list-targets-by-rule --rule ${{ matrix.task }} > rule-target.json
-          echo "Current target configuration:"
-          cat rule-target.json
-
-      - name: Update target with new task definition
-        run: |
-          NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
-          jq --arg new_task_arn "$NEW_TASK_ARN" '.Targets[].EcsParameters.TaskDefinitionArn = $new_task_arn' rule-target.json > new-target.json
-
-          echo "New target configuration:"
-          cat new-target.json
-          
+          jq --arg new_task_arn "${{ env.new_task_arn }}" '.Targets[].EcsParameters.TaskDefinitionArn = $new_task_arn' rule-target.json > new-target.json
           TARGETS=$(jq -c '.Targets' new-target.json)
           aws events put-targets --rule ${{ matrix.task }} --targets "$TARGETS"
+
+      - name: Update EventBridge Scheduler
+        if: steps.get-task-name.outputs.task_type == 'schedule'
+        run: |
+          aws scheduler get-schedule --name "${{ matrix.task }}" > schedule.json
+          TARGET=$(jq --arg new_task_arn "${{ env.new_task_arn }}" '.Target | .EcsParameters.TaskDefinitionArn = $new_task_arn' schedule.json)
+          aws scheduler update-schedule --name "${{ matrix.task }}" --target "$TARGET"
