@@ -83,76 +83,108 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
           mask-aws-account-id: false
 
-      - name: Determine task type
-        id: determine-task-type
+      - name: Get task information
+        id: get-task-info
         run: |
+          # List all available task definitions to debug
+          echo "Available task definitions for prefix ${{ inputs.app }}:"
+          aws ecs list-task-definitions --family-prefix "${{ inputs.app }}" --status ACTIVE
+          
+          # Check if this is an EventBridge rule
           if aws events describe-rule --name "${{ matrix.task }}" 2>/dev/null; then
-            echo "task_type=rule" >> $GITHUB_OUTPUT
+            echo "This is an EventBridge rule"
+            TASK_TYPE="rule"
+            
+            # Get the target and extract task definition ARN 
+            aws events list-targets-by-rule --rule "${{ matrix.task }}" > rule-target.json
+            echo "Target information:"
+            cat rule-target.json
+            
+            ARN_PATH=$(jq -r '.Targets[0].EcsParameters.TaskDefinitionArn' rule-target.json)
+            echo "Task definition ARN from rule: $ARN_PATH"
+          
+          # Check if this is an EventBridge schedule
           elif aws scheduler get-schedule --name "${{ matrix.task }}" 2>/dev/null; then
-            echo "task_type=schedule" >> $GITHUB_OUTPUT
+            echo "This is an EventBridge scheduler task"
+            TASK_TYPE="schedule"
+            
+            # Get the schedule details and extract task definition ARN
+            aws scheduler get-schedule --name "${{ matrix.task }}" > schedule.json
+            echo "Schedule information:"
+            cat schedule.json
+            
+            ARN_PATH=$(jq -r '.Target.EcsParameters.TaskDefinitionArn' schedule.json)
+            echo "Task definition ARN from schedule: $ARN_PATH"
+          
           else
-            echo "task_type=taskdef" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Process EventBridge Rule
-        if: steps.determine-task-type.outputs.task_type == 'rule'
-        id: process-rule
-        run: |
-          echo "Processing scheduled task: ${{ matrix.task }}"
-
-          TASK_DEF=$(echo "${{ matrix.task }}" | sed 's/_[0-9]*$//')
-          echo "Extracted task definition name: $TASK_DEF"
-
-          TASK_EXISTS=$(aws ecs list-task-definitions --family-prefix "$TASK_DEF" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
-          
-          if [ "$TASK_EXISTS" -eq "0" ]; then
-            echo "No task definition found with name $TASK_DEF"
-            exit 1
+            echo "This is a direct task definition"
+            TASK_TYPE="taskdef"
+            ARN_PATH=""
           fi
           
-          echo "Using task definition: $TASK_DEF"
-          echo "task_def=$TASK_DEF" >> $GITHUB_OUTPUT
-
-      - name: Process EventBridge Scheduler
-        if: steps.determine-task-type.outputs.task_type == 'schedule'
-        id: process-schedule
-        run: |
-          echo "Processing scheduled task: ${{ matrix.task }}"
-
-          # Use the same pattern as for rules but with different separator
-          TASK_DEF=$(echo "${{ matrix.task }}" | sed 's/-[0-9]*$//')
-          echo "Extracted task definition name: $TASK_DEF"
-
-          TASK_EXISTS=$(aws ecs list-task-definitions --family-prefix "$TASK_DEF" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
-          
-          if [ "$TASK_EXISTS" -eq "0" ]; then
-            echo "No task definition found with name $TASK_DEF"
-            exit 1
+          # If we have an ARN, extract the task definition name
+          if [ -n "$ARN_PATH" ] && [ "$ARN_PATH" != "null" ]; then
+            echo "Extracting task definition name from ARN: $ARN_PATH"
+            # The format is arn:aws:ecs:region:account:task-definition/name:revision
+            TASK_DEF=$(echo "$ARN_PATH" | awk -F'/' '{print $2}' | awk -F':' '{print $1}')
+            echo "Extracted task definition name: $TASK_DEF"
+          else
+            echo "No task definition ARN found, using app name"
+            TASK_DEF="${{ inputs.app }}"
           fi
           
-          echo "Using task definition: $TASK_DEF"
+          echo "task_type=$TASK_TYPE" >> $GITHUB_OUTPUT
           echo "task_def=$TASK_DEF" >> $GITHUB_OUTPUT
-
-      - name: Process Direct Task Definition
-        if: steps.determine-task-type.outputs.task_type == 'taskdef'
-        id: process-taskdef
-        run: |
-          echo "Processing task definition directly: ${{ matrix.task }}"
-          TASK_DEF="${{ matrix.task }}"
-          echo "Using task definition: $TASK_DEF"
-          echo "task_def=$TASK_DEF" >> $GITHUB_OUTPUT
+          echo "Using task definition: $TASK_DEF with type $TASK_TYPE"
+          
+          # List specific task definition detail to verify it exists
+          echo "Verifying task definition exists:"
+          aws ecs describe-task-definition --task-definition "$TASK_DEF" --query 'taskDefinition.family' || true
 
       - name: Download task definition
         run: |
-          if [ "${{ steps.determine-task-type.outputs.task_type }}" == "rule" ]; then
-            TASK_DEF="${{ steps.process-rule.outputs.task_def }}"
-          elif [ "${{ steps.determine-task-type.outputs.task_type }}" == "schedule" ]; then
-            TASK_DEF="${{ steps.process-schedule.outputs.task_def }}"
-          else
-            TASK_DEF="${{ steps.process-taskdef.outputs.task_def }}"
+          TASK_DEF="${{ steps.get-task-info.outputs.task_def }}"
+          
+          # If this fails due to task definition not existing, try alternative approaches
+          if ! aws ecs describe-task-definition --task-definition "$TASK_DEF" --query taskDefinition > task-definition.json 2>/dev/null; then
+            echo "Task definition $TASK_DEF not found, trying alternative approaches"
+            
+            # For id-trading-like rules, try just 'id-trading'
+            if [[ "${{ matrix.task }}" == "id-trading"* ]]; then
+              echo "Trying 'id-trading'"
+              if aws ecs describe-task-definition --task-definition "id-trading" --query taskDefinition > task-definition.json 2>/dev/null; then
+                echo "Found task definition 'id-trading'"
+                TASK_DEF="id-trading"
+              else
+                echo "Task definition 'id-trading' not found"
+              fi
+            fi
+            
+            # For imbalance-price-cz-like rules, try just 'imbalance-price-cz'
+            if [[ "${{ matrix.task }}" == "imbalance-price-cz"* ]]; then
+              echo "Trying 'imbalance-price-cz'"
+              if aws ecs describe-task-definition --task-definition "imbalance-price-cz" --query taskDefinition > task-definition.json 2>/dev/null; then
+                echo "Found task definition 'imbalance-price-cz'"
+                TASK_DEF="imbalance-price-cz"
+              else
+                echo "Task definition 'imbalance-price-cz' not found"
+              fi
+            fi
+            
+            # List all task definitions that might be related
+            echo "All task definitions that might be related:"
+            for prefix in $(echo "${{ matrix.task }}" | tr '-' '\n' | head -n 2); do
+              echo "Checking prefix: $prefix"
+              aws ecs list-task-definitions --family-prefix "$prefix" --status ACTIVE
+            done
+            
+            # If all else fails, exit with error
+            if [ ! -f task-definition.json ]; then
+              echo "Task definition not found with any known pattern, cannot proceed"
+              exit 1
+            fi
           fi
           
-          aws ecs describe-task-definition --task-definition "$TASK_DEF" --query taskDefinition > task-definition.json
           echo "Downloaded task definition for $TASK_DEF"
 
       - name: Fill in the new image ID in the Amazon ECS task definition
@@ -174,7 +206,7 @@ jobs:
           echo "new_task_arn=$NEW_TASK_ARN" >> $GITHUB_ENV
 
       - name: Update EventBridge Rule
-        if: steps.determine-task-type.outputs.task_type == 'rule'
+        if: steps.get-task-info.outputs.task_type == 'rule'
         run: |
           aws events list-targets-by-rule --rule ${{ matrix.task }} > rule-target.json
           echo "Current target configuration:"
@@ -189,7 +221,7 @@ jobs:
           aws events put-targets --rule ${{ matrix.task }} --targets "$TARGETS"
 
       - name: Update EventBridge Scheduler
-        if: steps.determine-task-type.outputs.task_type == 'schedule'
+        if: steps.get-task-info.outputs.task_type == 'schedule'
         run: |
           aws scheduler get-schedule --name "${{ matrix.task }}" > schedule.json
           echo "Current schedule configuration:"
