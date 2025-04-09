@@ -45,7 +45,7 @@ jobs:
         run: |
           echo "Listing EventBridge rules with prefix ${{ inputs.app }}..."
           
-          # Try standard EventBridge rules first
+          # eventBridge rules
           aws events list-rules --name-prefix "${{ inputs.app }}" --query "Rules[].Name" --output json | jq -c '.' > rules.json
           
           if [ "$(cat rules.json)" == "[]" ]; then
@@ -78,7 +78,7 @@ jobs:
         run: |
           echo "Checking EventBridge Scheduler with prefix ${{ inputs.app }}..."
           
-          # Try to list schedules - wrap in try/catch because some regions may not have scheduler API
+          # try to list schedules
           set +e
           aws scheduler list-schedules --name-prefix "${{ inputs.app }}" --query "Schedules[].Name" --output json > schedules.json 2>/dev/null
           SCHEDULER_RESULT=$?
@@ -118,12 +118,10 @@ jobs:
         run: |
           echo "Processing EventBridge rule: ${{ matrix.task }}"
 
-          # Get targets to verify rule works
           aws events list-targets-by-rule --rule ${{ matrix.task }} > rule-target.json
           echo "Rule target:"
           cat rule-target.json
-          
-          # Original working approach for EventBridge rules
+
           TASK_DEF=$(echo "${{ matrix.task }}" | sed 's/_[0-9]*$//')
           echo "Extracted task definition name: $TASK_DEF"
 
@@ -196,20 +194,9 @@ jobs:
         run: |
           echo "Processing EventBridge scheduler: ${{ matrix.task }}"
           
-          aws scheduler get-schedule --name "${{ matrix.task }}" > schedule.json
-          
-          # Get the task definition ARN from the target
-          TASK_DEF_ARN=$(jq -r '.Target.EcsParameters.TaskDefinitionArn' schedule.json)
-          
-          # Extract just the task definition name (without revision)
-          TASK_DEF=$(echo "$TASK_DEF_ARN" | awk -F'/' '{print $2}' | awk -F':' '{print $1}')
-          echo "Extracted task definition name from ARN: $TASK_DEF"
-          
-          # If no ARN found, try simpler approach
-          if [ -z "$TASK_DEF" ] || [ "$TASK_DEF" == "null" ]; then
-            TASK_DEF=${{ inputs.app }}
-            echo "Using app name as task definition: $TASK_DEF"
-          fi
+          # Similar approach to EventBridge rules
+          TASK_DEF="${{ inputs.app }}"
+          echo "Using app name as task definition: $TASK_DEF"
           
           TASK_EXISTS=$(aws ecs list-task-definitions --family-prefix "$TASK_DEF" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
           
@@ -247,18 +234,10 @@ jobs:
           aws scheduler get-schedule --name "${{ matrix.task }}" > schedule.json
           echo "Current schedule configuration:"
           cat schedule.json
+
+          NEW_TARGET=$(jq --arg new_task_arn "${{ env.new_task_arn }}" '.Target | .EcsParameters.TaskDefinitionArn = $new_task_arn' schedule.json)
           
-          # Create updated target with new task definition ARN
-          jq --arg new_task_arn "${{ env.new_task_arn }}" '.Target.EcsParameters.TaskDefinitionArn = $new_task_arn' schedule.json > updated-target.json
-          TARGET=$(jq -c '.Target' updated-target.json)
-          
-          # Get other required parameters
-          SCHEDULE_EXPRESSION=$(jq -r '.ScheduleExpression' schedule.json)
-          FLEX_TIME_WINDOW=$(jq -c '.FlexibleTimeWindow' schedule.json)
-          
-          # Update the schedule
           aws scheduler update-schedule \
             --name "${{ matrix.task }}" \
-            --schedule-expression "$SCHEDULE_EXPRESSION" \
-            --flexible-time-window "$FLEX_TIME_WINDOW" \
-            --target "$TARGET"
+            --target "$NEW_TARGET"
+  
