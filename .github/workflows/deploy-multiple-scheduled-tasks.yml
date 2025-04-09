@@ -235,9 +235,13 @@ jobs:
           echo "Current schedule configuration:"
           cat schedule.json
 
+          SCHEDULE_EXPRESSION=$(jq -r '.ScheduleExpression' schedule.json)
+          FLEX_TIME_WINDOW=$(jq -c '.FlexibleTimeWindow' schedule.json)
+
           NEW_TARGET=$(jq --arg new_task_arn "${{ env.new_task_arn }}" '.Target | .EcsParameters.TaskDefinitionArn = $new_task_arn' schedule.json)
-          
+
           aws scheduler update-schedule \
             --name "${{ matrix.task }}" \
+            --schedule-expression "$SCHEDULE_EXPRESSION" \
+            --flexible-time-window "$FLEX_TIME_WINDOW" \
             --target "$NEW_TARGET"
-  
