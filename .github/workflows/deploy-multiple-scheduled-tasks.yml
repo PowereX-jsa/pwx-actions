@@ -98,8 +98,19 @@ jobs:
               # Extract the task definition name from the ARN
               TASK_DEF=$(echo "$TASK_DEF_ARN" | cut -d'/' -f2 | cut -d':' -f1)
             else
-              # Use the app name directly
-              TASK_DEF="${{ inputs.app }}"
+              # Try to find task definition by matching name pattern
+              echo "No task definition ARN found in rule target, searching by name..."
+              # Extract base name without unique identifier
+              BASE_NAME=$(echo "${{ matrix.task }}" | sed -E 's/[-_][0-9]+[^-_]*$//')
+              # List all task definitions with the base name
+              MATCHING_TASKS=$(aws ecs list-task-definitions --family-prefix "$BASE_NAME" --status ACTIVE --query 'taskDefinitionArns[].split("/")[1]' --output json)
+              # Use the first match if available
+              if [ "$MATCHING_TASKS" != "[]" ]; then
+                TASK_DEF=$(echo $MATCHING_TASKS | jq -r '.[0] | split(":")[0]')
+              else
+                # As last resort, use the app name
+                TASK_DEF="${{ inputs.app }}"
+              fi
             fi
           
           # Check if this is an EventBridge schedule
@@ -114,8 +125,19 @@ jobs:
               # Extract the task definition name from the ARN
               TASK_DEF=$(echo "$TASK_DEF_ARN" | cut -d'/' -f2 | cut -d':' -f1)
             else
-              # Use the app name directly
-              TASK_DEF="${{ inputs.app }}"
+              # Try to find task definition by matching name pattern
+              echo "No task definition ARN found in schedule target, searching by name..."
+              # Extract base name without unique identifier
+              BASE_NAME=$(echo "${{ matrix.task }}" | sed -E 's/[-_][0-9]+[^-_]*$//')
+              # List all task definitions with the base name
+              MATCHING_TASKS=$(aws ecs list-task-definitions --family-prefix "$BASE_NAME" --status ACTIVE --query 'taskDefinitionArns[].split("/")[1]' --output json)
+              # Use the first match if available
+              if [ "$MATCHING_TASKS" != "[]" ]; then
+                TASK_DEF=$(echo $MATCHING_TASKS | jq -r '.[0] | split(":")[0]')
+              else
+                # As last resort, use the app name
+                TASK_DEF="${{ inputs.app }}"
+              fi
             fi
           
           else
