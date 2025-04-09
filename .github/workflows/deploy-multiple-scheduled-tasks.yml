@@ -46,11 +46,15 @@ jobs:
           
           # Try standard EventBridge rules first
           aws events list-rules --name-prefix "${{ inputs.app }}" --query "Rules[].Name" --output json | jq -c '.' > tasks.json
+          echo "Found EventBridge rules:"
+          cat tasks.json
           
           # If no results, try EventBridge Scheduler
           if [ "$(cat tasks.json)" == "[]" ]; then
             echo "No EventBridge rules found, checking EventBridge Scheduler..."
             aws scheduler list-schedules --name-prefix "${{ inputs.app }}" --query "Schedules[].Name" --output json | jq -c '.' > tasks.json
+            echo "Found EventBridge schedules:"
+            cat tasks.json
           fi
           
           # If still no results, exit
@@ -83,17 +87,25 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
           mask-aws-account-id: false
 
-      - name: Determine if EventBridge rule or scheduler
-        id: determine-type
+      - name: Check if task is EventBridge rule
+        id: check-rule
         run: |
-          if aws events describe-rule --name "${{ matrix.task }}" 2>/dev/null; then
+          # This needs to correctly capture the exit code
+          set +e
+          aws events describe-rule --name "${{ matrix.task }}" >/dev/null 2>&1
+          RULE_EXISTS=$?
+          set -e
+          
+          if [ $RULE_EXISTS -eq 0 ]; then
             echo "task_type=rule" >> $GITHUB_OUTPUT
+            echo "Task '${{ matrix.task }}' is an EventBridge rule"
           else
             echo "task_type=schedule" >> $GITHUB_OUTPUT
+            echo "Task '${{ matrix.task }}' is not an EventBridge rule, assuming scheduler"
           fi
 
       - name: Process EventBridge rule
-        if: steps.determine-type.outputs.task_type == 'rule'
+        if: steps.check-rule.outputs.task_type == 'rule'
         run: |
           echo "Processing EventBridge rule: ${{ matrix.task }}"
 
@@ -115,9 +127,20 @@ jobs:
           echo "Downloaded task definition for $TASK_DEF"
 
       - name: Process EventBridge scheduler
-        if: steps.determine-type.outputs.task_type == 'schedule'
+        if: steps.check-rule.outputs.task_type == 'schedule'
         run: |
           echo "Processing EventBridge scheduler: ${{ matrix.task }}"
+          
+          # First verify the schedule actually exists
+          set +e
+          aws scheduler get-schedule --name "${{ matrix.task }}" >/dev/null 2>&1
+          SCHEDULE_EXISTS=$?
+          set -e
+          
+          if [ $SCHEDULE_EXISTS -ne 0 ]; then
+            echo "Error: Neither EventBridge rule nor scheduler found for ${{ matrix.task }}"
+            exit 1
+          fi
           
           # For scheduler, get the target directly to extract task definition
           aws scheduler get-schedule --name "${{ matrix.task }}" > schedule.json
@@ -167,7 +190,7 @@ jobs:
           echo "new_task_arn=$NEW_TASK_ARN" >> $GITHUB_ENV
 
       - name: Update EventBridge rule target
-        if: steps.determine-type.outputs.task_type == 'rule'
+        if: steps.check-rule.outputs.task_type == 'rule'
         run: |
           aws events list-targets-by-rule --rule ${{ matrix.task }} > rule-target.json
           echo "Current target configuration:"
@@ -182,7 +205,7 @@ jobs:
           aws events put-targets --rule ${{ matrix.task }} --targets "$TARGETS"
 
       - name: Update EventBridge scheduler target
-        if: steps.determine-type.outputs.task_type == 'schedule'
+        if: steps.check-rule.outputs.task_type == 'schedule'
         run: |
           aws scheduler get-schedule --name "${{ matrix.task }}" > schedule.json
           echo "Current schedule configuration:"
