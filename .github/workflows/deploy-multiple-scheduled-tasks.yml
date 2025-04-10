@@ -193,11 +193,30 @@ jobs:
       - name: Process EventBridge scheduler
         run: |
           echo "Processing EventBridge scheduler: ${{ matrix.task }}"
+
+          aws scheduler get-schedule --name "${{ matrix.task }}" > schedule.json
+
+          TASK_DEF_ARN=$(jq -r '.Target.EcsParameters.TaskDefinitionArn' schedule.json)
           
-          # Similar approach to EventBridge rules
-          TASK_DEF="${{ inputs.app }}"
-          echo "Using app name as task definition: $TASK_DEF"
-          
+          if [ "$TASK_DEF_ARN" != "null" ] && [ -n "$TASK_DEF_ARN" ]; then
+            TASK_DEF=$(echo "$TASK_DEF_ARN" | awk -F'/' '{print $2}' | awk -F':' '{print $1}')
+            echo "Extracted task definition from target ARN: $TASK_DEF"
+          else
+            # scheduler name directly
+            SCHEDULER_NAME="${{ matrix.task }}"
+
+            DIRECT_MATCH=$(aws ecs list-task-definitions --family-prefix "$SCHEDULER_NAME" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
+            
+            if [ "$DIRECT_MATCH" -gt "0" ]; then
+              TASK_DEF="$SCHEDULER_NAME"
+              echo "Using scheduler name as task definition: $TASK_DEF"
+            else
+              # app input as fallback
+              TASK_DEF="${{ inputs.app }}"
+              echo "Using app name as task definition: $TASK_DEF"
+            fi
+          fi
+
           TASK_EXISTS=$(aws ecs list-task-definitions --family-prefix "$TASK_DEF" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
           
           if [ "$TASK_EXISTS" -eq "0" ]; then
