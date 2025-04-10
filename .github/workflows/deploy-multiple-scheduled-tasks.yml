@@ -114,7 +114,7 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
           mask-aws-account-id: false
 
-      - name: Process EventBridge rule (Original working approach)
+      - name: Process EventBridge rule
         run: |
           echo "Processing EventBridge rule: ${{ matrix.task }}"
 
