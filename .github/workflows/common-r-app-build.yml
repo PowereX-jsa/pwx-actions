@@ -65,6 +65,8 @@ jobs:
 
     container:
       image: ${{ inputs.r-image }}
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
 
     env:
       # default env var name under which R uses token for package installation
