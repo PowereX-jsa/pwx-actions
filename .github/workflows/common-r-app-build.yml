@@ -110,7 +110,7 @@ jobs:
         with:
           test-dir: ${{ inputs.working-directory }}/tests/testthat
 
-      # building docker images - modified to pass platform parameter
+      # building docker images
       - name: Build and push docker image
         id: build-docker-image
         uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image@master
