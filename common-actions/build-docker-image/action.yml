@@ -20,6 +20,11 @@ inputs:
   aws-account-id:
     required: true
     description: "set this to AWS_ACCOUNT_ID of your user"
+  platform:
+    required: false
+    type: string
+    default: "linux/amd64"
+    description: "Platform for Docker build (e.g., 'linux/arm64')"
 
 outputs:
   tag-to-deploy:
@@ -30,7 +35,6 @@ runs:
   using: "composite"
 
   steps:
-
     - name: Set docker tag
       run: |
         if [[ ${{ github.ref }} == 'refs/heads/master' || ${{ github.ref }} == 'refs/heads/main' ]]; then
@@ -42,20 +46,32 @@ runs:
         fi
       shell: bash
 
-    - name: Docker build and push
-      uses: kciter/aws-ecr-action@master
+    # Set up Docker Buildx for multi-platform support
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+      
+    # Configure AWS credentials
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
       with:
-        access_key_id: ${{ inputs.aws-access-key-id }}
-        secret_access_key: ${{ inputs.aws-secret-access-key }}
-        account_id: ${{ inputs.aws-account-id }}
-        repo: ${{ inputs.docker-repo }}
-        region: eu-central-1
-        tags: ${{ env.TAG }}
-        dockerfile: "${{ inputs.working-directory }}/Dockerfile"
-        create_repo: false
-        set_repo_policy: false
-        repo_policy_file: repo-policy.json
-        path: ${{ inputs.working-directory }}
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        aws-region: eu-central-1
+
+    # Login to Amazon ECR
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    # Build and push with platform support
+    - name: Build and push
+      uses: docker/build-push-action@v4
+      with:
+        context: ${{ inputs.working-directory }}
+        file: ${{ inputs.working-directory }}/Dockerfile
+        push: true
+        tags: ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ env.TAG }}
+        platforms: ${{ inputs.platform }}
 
     # can`t do this in step 'Set docker tag' because for some reason env.TAG is empty - probably is filled after the step is finished
     - name: Show published docker image tag and set it as output of job
@@ -73,4 +89,5 @@ runs:
         echo "### \#\# pushed tags: '${{ env.TAG }}' to aws ecr registry" >> $GITHUB_STEP_SUMMARY
         echo "### \#\# " >> $GITHUB_STEP_SUMMARY
         echo "### \#\# going to use following tag: '${{ steps.output-docker-tag.outputs.TAG_TO_DEPLOY }}' for deployment" >> $GITHUB_STEP_SUMMARY
+        echo "### \#\# platform: '${{ inputs.platform }}'" >> $GITHUB_STEP_SUMMARY
       shell: bash
