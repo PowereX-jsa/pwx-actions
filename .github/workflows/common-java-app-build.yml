@@ -84,7 +84,7 @@ jobs:
           restore-keys: ${{ runner.os }}-sonar
 
       - name: Gradle build, analyze and publish
-        run: ${{ inputs.working-directory }}/gradlew ${{ inputs.build-args }}
+        run: ./gradlew ${{ inputs.build-args }}
         env:
           # env vars for access to github-packages
           GITHUB_USERNAME: ${{ secrets.github-username }}
