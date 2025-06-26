@@ -131,7 +131,7 @@ jobs:
       # building docker images
       - name: Build and push docker image
         id: build-docker-image
-        uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image@feature/#22_test_r_build_with_arm64
+        uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image@feature/#22_r_build_with_arm64
         with:
           aws-access-key-id: ${{ secrets.aws-access-key-id }}
           aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
