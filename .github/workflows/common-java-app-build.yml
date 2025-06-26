@@ -73,6 +73,9 @@ jobs:
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v4.4.0
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4.4.0
+
       - name: Cache SonarCloud packages
         uses: actions/cache@v4.2.3
         with:
@@ -81,10 +84,7 @@ jobs:
           restore-keys: ${{ runner.os }}-sonar
 
       - name: Gradle build, analyze and publish
-        uses: gradle/actions/gradle-build-action@v4.4.0
-        with:
-          build-root-directory: ${{ inputs.working-directory }}
-          arguments: ${{ inputs.build-args }}
+        run: ${{ inputs.working-directory }}./gradlew ${{ inputs.build-args }}
         env:
           # env vars for access to github-packages
           GITHUB_USERNAME: ${{ secrets.github-username }}
