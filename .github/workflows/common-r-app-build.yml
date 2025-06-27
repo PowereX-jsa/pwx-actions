@@ -149,3 +149,6 @@ jobs:
           docker-repo: ${{ inputs.docker-repo }}
           working-directory: ${{ inputs.working-directory }}
           platform: ${{ inputs.platform }}
+          build-args: |
+            GITHUB_PAT=${{ secrets.personal-access-token-github }}
+
