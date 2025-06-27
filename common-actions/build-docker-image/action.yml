@@ -25,6 +25,10 @@ inputs:
     type: string
     default: "linux/amd64"
     description: "Platform for Docker build (e.g., 'linux/arm64')"
+  build-args:
+    required: false
+    type: string
+    description: "Additional build arguments to pass to Docker"
 
 outputs:
   tag-to-deploy:
@@ -72,6 +76,8 @@ runs:
         push: true
         tags: ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ env.TAG }}
         platforms: ${{ inputs.platform }}
+        build-args: |
+          ${{ inputs.build-args || '' }}
 
     # can`t do this in step 'Set docker tag' because for some reason env.TAG is empty - probably is filled after the step is finished
     - name: Show published docker image tag and set it as output of job
