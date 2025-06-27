@@ -52,6 +52,11 @@ on:
         type: string
         default: "linux/amd64"
         description: "Platform for Docker build (e.g., 'linux/arm64')"
+      pre-install-commands:
+        required: false
+        type: string
+        default: ""
+        description: "Commands to run before renv initialization"
 
     outputs:
       tag-to-deploy:
@@ -86,6 +91,11 @@ jobs:
           lfs: false
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
           set-safe-directory: true
+
+      - name: Run pre-install commands
+        if: ${{ inputs.pre-install-commands != '' }}
+        run: |
+          ${{ inputs.pre-install-commands }}
 
       - name: Initialize global renv
         uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@master
