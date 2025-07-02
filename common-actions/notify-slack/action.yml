@@ -35,6 +35,10 @@ inputs:
     description: 'GitHub Actions run ID'
     required: true
     type: string
+  slack-webhook-url:
+    description: 'Slack Incoming Webhook URL'
+    required: true
+    type: string
   status:
     description: 'Deployment status (success or failure)'
     required: true
@@ -50,7 +54,7 @@ runs:
     - name: Send custom JSON data to Slack workflow
       uses: slackapi/slack-github-action@v2.1.0
       env:
-        SLACK_WEBHOOK_URL: ${{ secrets.PWX_PROD_SLACK_WEBHOOK }}
+        SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
       with:
         webhook-type: incoming-webhook
         payload: |
