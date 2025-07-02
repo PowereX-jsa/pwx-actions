@@ -7,9 +7,6 @@ on:
       aws-secret-access-key:
         required: true
         description: "set this to AWS_SECRET_ACCESS_KEY of your user"
-      slack-webhook-url:
-        required: false
-        description: "Slack webhook URL for notifications"
     inputs:
       aws-region:
         required: true
@@ -85,8 +82,6 @@ jobs:
       - name: Notify Slack
         uses: PowereX-jsa/pwx-actions/common-actions/notify-slack@1534-github-actions-slack
         with:
-          # slack-webhook-url: ${{ secrets.slack-webhook-url }}
-          slack-webhook-url: 'https://hooks.slack.com/services/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'
           status: ${{ needs.deploy.result }}
           repository: ${{ github.repository }}
           commit-url: ${{ format('{0}/{1}/commit/{2}', github.server_url, github.repository, github.sha) }}
