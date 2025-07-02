@@ -82,6 +82,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Get short commit hash
+        id: short_commit
+        run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT        
+
       - name: Notify Slack
         uses: PowereX-jsa/pwx-actions/common-actions/notify-slack@1534-github-actions-slack
         with:
@@ -89,9 +93,9 @@ jobs:
           status: ${{ inputs.test-mode && 'success' || needs.deploy.result }}
           repository: ${{ github.repository }}
           commit-url: ${{ format('{0}/{1}/commit/{2}', github.server_url, github.repository, github.sha) }}
-          commit-slug: ${{ github.sha }}
+          commit-slug: ${{ steps.short_commit.outputs.SHORT_SHA }}
           author: ${{ github.actor }}
-          job: ${{ github.job }}
+          job: ${{ inputs.test-mode && 'Mock ECS Deployment' || 'ECS Deployment' }}
           event-name: ${{ github.event_name }}
           workflow: ${{ github.workflow }}
           run-id: ${{ github.run_id }}
