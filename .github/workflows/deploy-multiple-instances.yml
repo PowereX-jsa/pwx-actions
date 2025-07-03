@@ -82,7 +82,7 @@ jobs:
   notify-slack:
     # if: always()
     if: always() && (inputs.test-mode || contains(toJson(needs.mock-deploy.*.result), 'failure')) && contains(fromJson(needs.create-env-deploy-strategy.outputs.deploy-matrix), 'dev')
-    needs: [deploy, mock-deploy]
+    needs: [create-env-deploy-strategy, deploy, mock-deploy]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
