@@ -96,7 +96,7 @@ jobs:
         uses: PowereX-jsa/pwx-actions/common-actions/notify-slack@1534-github-actions-slack
         with:
           slack-webhook-url: ${{ secrets.slack-webhook-url }}
-          status: ${{ inputs.test-mode && 'success' || needs.deploy.result }}
+          status: ${{ inputs.test-mode && 'success' || needs.mock-deploy.result }}
           repository: ${{ github.repository }}
           commit-url: ${{ format('{0}/{1}/commit/{2}', github.server_url, github.repository, github.sha) }}
           commit-slug: ${{ steps.short_commit.outputs.SHORT_SHA }}
