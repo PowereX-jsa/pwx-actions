@@ -76,12 +76,11 @@ jobs:
           echo "ECS Service: ${{ matrix.instance }}"
           echo "Image: ${{ inputs.image }}"
           sleep 3
-          exit 1
           echo "✅ Mock deployment completed successfully"
 
   notify-slack:
     # if: always()
-    if: (inputs.test-mode || contains(toJson(needs.mock-deploy.*.result), 'failure')) && contains(inputs.ecs-cluster, 'dev')
+    if: always() && contains(toJson(needs.mock-deploy.*.result), 'failure') && contains(inputs.ecs-cluster, 'dev')
     needs: [deploy, mock-deploy]
     runs-on: ubuntu-latest
     steps:
