@@ -62,14 +62,18 @@ jobs:
 
   mock-deploy:
     if: ${{ inputs.test-mode }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.list-instances.outputs.instances-matrix) }}    
     needs: [ list-instances ]
     runs-on: ubuntu-latest
     steps:
       - name: Mock deployment simulation
         run: |
           echo "🧪 TEST MODE: Simulating deployment..."
-          echo "App: ${{ inputs.app }}"
-          echo "Cluster: ${{ inputs.ecs-cluster }}"
+          echo "AWS Region: ${{ inputs.aws-region }}"
+          echo "ECS Cluster: ${{ inputs.ecs-cluster }}"
+          echo "ECS Service: ${{ matrix.instance }}"
           echo "Image: ${{ inputs.image }}"
           sleep 3
           echo "✅ Mock deployment completed successfully"
