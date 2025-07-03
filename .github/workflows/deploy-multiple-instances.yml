@@ -80,11 +80,18 @@ jobs:
           echo "✅ Mock deployment completed successfully"
 
   notify-slack:
-    # if: always()
-    if: always() && contains(toJson(needs.mock-deploy.*.result), 'failure') && contains(inputs.ecs-cluster, 'dev')
+    if: always()
+    # if: always() && contains(toJson(needs.mock-deploy.*.result), 'failure') && contains(inputs.ecs-cluster, 'dev')
     needs: [deploy, mock-deploy]
     runs-on: ubuntu-latest
     steps:
+      - name: Debug conditions
+        run: |
+          echo "Mock deploy results: ${{ toJson(needs.mock-deploy.*.result) }}"
+          echo "ECS cluster: ${{ inputs.ecs-cluster }}"
+          echo "Contains dev: ${{ contains(inputs.ecs-cluster, 'dev') }}"
+          echo "Contains failure: ${{ contains(toJson(needs.mock-deploy.*.result), 'failure') }}"
+
       - name: Checkout
         uses: actions/checkout@v4
 
