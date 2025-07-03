@@ -79,7 +79,8 @@ jobs:
           echo "✅ Mock deployment completed successfully"
 
   notify-slack:
-    if: always()
+    # if: always()
+    if: always() && (inputs.test-mode || contains(toJson(needs.mock-deploy.*.result), 'success')) && contains(fromJson(needs.create-env-deploy-strategy.outputs.deploy-matrix), 'prod')
     needs: [deploy, mock-deploy]
     runs-on: ubuntu-latest
     steps:
