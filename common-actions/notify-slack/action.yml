@@ -1,0 +1,109 @@
+name: 'slack-notify'
+description: 'Notify Slack channel about deployment status with custom JSON payload'
+author: 'jozef.polcik@powerex.io'
+
+inputs:
+  author:
+    description: 'Commit author name'
+    required: true
+    type: string
+  commit-slug:
+    description: 'Short commit hash'
+    required: true
+    type: string
+  commit-url:
+    description: 'URL to the commit'
+    required: true
+    type: string
+  event-name:
+    description: 'Event name that triggered the workflow'
+    required: true
+    type: string
+  job:
+    description: 'Job name'
+    required: true
+    type: string
+  message:
+    description: 'Message'
+    required: true
+    type: string
+  repository:
+    description: 'Repository name (e.g., owner/repo)'
+    required: true
+    type: string
+  run-id:
+    description: 'GitHub Actions run ID'
+    required: true
+    type: string
+  slack-webhook-url:
+    description: 'Slack Incoming Webhook URL'
+    required: true
+    type: string
+  status:
+    description: 'Deployment status (success or failure)'
+    required: true
+    type: string
+  workflow:
+    description: 'Workflow name'
+    required: true
+    type: string
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Send custom JSON data to Slack workflow
+      uses: slackapi/slack-github-action@v2.1.0
+      env:
+        SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
+      with:
+        webhook-type: incoming-webhook
+        payload: |
+          {
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*${{ inputs.status == 'success' && ':white_check_mark: Job Succeeded' || ':x: Job Failed' }}*"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Repo*\n<${{ github.server_url }}/${{ inputs.repository }}|${{ inputs.repository }}>"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Commit*\n<${{ inputs.commit-url }}|${{ inputs.commit-slug }}>"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Author*\n${{ inputs.author }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Job*\n`${{ inputs.job }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Event Name*\n`${{ inputs.event-name }}`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Workflow*\n`${{ inputs.workflow }}`"
+                  },
+
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Build Logs*\n<${{ github.server_url }}/${{ inputs.repository }}/actions/runs/${{ inputs.run-id }}|View Logs>"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Message*\n${{ inputs.message }}"
+                  }
+                ]
+              }
+            ]
+          }
