@@ -76,7 +76,6 @@ jobs:
           echo "ECS Service: ${{ matrix.instance }}"
           echo "Image: ${{ inputs.image }}"
           sleep 3
-          exit 1
           echo "✅ Mock deployment completed successfully"
 
   notify-slack:
