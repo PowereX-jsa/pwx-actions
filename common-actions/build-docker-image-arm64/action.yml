@@ -69,19 +69,31 @@ runs:
       uses: aws-actions/amazon-ecr-login@v1
       
     # Build and push with platform support - For master/main branch
-    - name: Build and push (master/main)
+    # First push with prod tag only to make it primary
+    - name: Build and push prod tag (master/main)
       if: env.IS_MASTER == 'true'
+      id: build-prod
       uses: docker/build-push-action@v4
       with:
         context: ${{ inputs.working-directory }}
         file: ${{ inputs.working-directory }}/Dockerfile
         push: true
-        tags: |
-          ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ env.PROD_TAG }}
-          ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:latest
+        tags: ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ env.PROD_TAG }}
         platforms: ${{ inputs.platform }}
         build-args: |
           ${{ inputs.build-args || '' }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    # Then add latest tag using the same image digest
+    - name: Add latest tag to existing image (master/main)
+      if: env.IS_MASTER == 'true'
+      run: |
+        # Create and push a manifest for 'latest' pointing to the same image
+        docker buildx imagetools create \
+          --tag ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:latest \
+          ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ env.PROD_TAG }}
+      shell: bash
           
     # Build and push with platform support - For feature branches
     - name: Build and push (feature branch)
