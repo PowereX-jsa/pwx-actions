@@ -77,8 +77,12 @@ runs:
           done <<< "${{ inputs.build-args }}"
         fi
 
-        # Build and push with the primary tag first
-        PRIMARY_TAG=$(echo "${{ env.TAGS }}" | cut -d ',' -f 1)
+        # For prod builds, ALWAYS use the PROD_TAG as primary tag
+        if [[ "${{ steps.set-tags.outputs.IS_PROD }}" == "true" ]]; then
+          PRIMARY_TAG="${{ steps.set-tags.outputs.PROD_TAG }}"
+        else
+          PRIMARY_TAG=$(echo "${{ env.TAGS }}" | cut -d ',' -f 1)
+        fi
         
         docker buildx build \
           --platform ${{ inputs.platform }} \
@@ -99,7 +103,14 @@ runs:
     - name: Show published docker image tag and set it as output of job
       id: output-docker-tag
       run: |
-        TAG_TO_DEPLOY=$(echo "${{ env.TAGS }}" | cut -d ',' -f 1)
+        # For prod builds, use the prod tag as TAG_TO_DEPLOY
+        if [[ "${{ steps.set-tags.outputs.IS_PROD }}" == "true" ]]; then
+          TAG_TO_DEPLOY="${{ steps.set-tags.outputs.PROD_TAG }}"
+        else
+          # For non-prod builds, use the first (and only) tag
+          TAG_TO_DEPLOY=$(echo "${{ env.TAGS }}" | cut -d ',' -f 1)
+        fi
+        
         echo "following tags for docker image: ${{ env.TAGS }} were pushed"
         echo "TAG_TO_DEPLOY=${TAG_TO_DEPLOY}" >> "$GITHUB_OUTPUT"
       shell: bash
