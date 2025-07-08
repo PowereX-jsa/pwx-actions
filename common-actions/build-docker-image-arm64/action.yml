@@ -36,79 +36,77 @@ runs:
   using: "composite"
   steps:
     - name: Set docker tag
+      id: set-tags
       run: |
-        if [[ ${{ github.ref }} == 'refs/heads/master' || ${{ github.ref }} == 'refs/heads/main' ]]; then
-          # set tags as env vars in current runner
-          echo "TAG=prod_$(git rev-parse --short HEAD),latest" >> "$GITHUB_ENV"
+        if [[ "${{ github.ref }}" == 'refs/heads/master' || "${{ github.ref }}" == 'refs/heads/main' ]]; then
+          PROD_TAG="prod_$(git rev-parse --short HEAD)"
+          echo "TAGS=${PROD_TAG},latest" >> "$GITHUB_ENV"
+          echo "PROD_TAG=${PROD_TAG}" >> "$GITHUB_OUTPUT"
+          echo "IS_PROD=true" >> "$GITHUB_OUTPUT"
         else
-          # set tags as env vars in current runner
-          echo "TAG=$(echo test-deploy_${{ github.head_ref }} | tr -s '/' '_' | tr -s '#' '_' )" >> "$GITHUB_ENV"
+          TEST_TAG=$(echo "test-deploy_${{ github.head_ref }}" | tr -s '/' '_' | tr -s '#' '_')
+          echo "TAGS=${TEST_TAG}" >> "$GITHUB_ENV"
+          echo "IS_PROD=false" >> "$GITHUB_OUTPUT"
         fi
       shell: bash
-      
-    # Set up Docker Buildx for multi-platform support
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
-      
-    # Configure AWS credentials
+
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
       with:
         aws-access-key-id: ${{ inputs.aws-access-key-id }}
         aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
         aws-region: eu-central-1
-        
-    # Login to Amazon ECR
+
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
-      
-    # Build and push with platform support
-    - name: Build and push
+
+    - name: Build and push with platform support
       id: docker_build
       run: |
-        # Parse tags properly
-        IFS=',' read -ra TAGS_ARRAY <<< "${{ env.TAG }}"
-        TAG_ARGS=""
-        for tag in "${TAGS_ARRAY[@]}"; do
-          TAG_ARGS="$TAG_ARGS --tag ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${tag}"
-        done
-        
         # Parse build args if provided
         BUILD_ARGS=""
         if [[ -n "${{ inputs.build-args }}" ]]; then
-          # Split multi-line build args and format them properly
           while IFS= read -r line; do
             if [[ -n "$line" ]]; then
               BUILD_ARGS="$BUILD_ARGS --build-arg $line"
             fi
           done <<< "${{ inputs.build-args }}"
         fi
+
+        # Build and push with the primary tag first
+        PRIMARY_TAG=$(echo "${{ env.TAGS }}" | cut -d ',' -f 1)
         
-        # Build and push with docker buildx
         docker buildx build \
           --platform ${{ inputs.platform }} \
           --push \
-          $TAG_ARGS \
+          --tag ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${PRIMARY_TAG} \
           --file ${{ inputs.working-directory }}/Dockerfile \
           $BUILD_ARGS \
           ${{ inputs.working-directory }}
+
+        # If it's a prod build, also tag and push 'latest'
+        if [[ "${{ steps.set-tags.outputs.IS_PROD }}" == "true" ]]; then
+          docker buildx imagetools create \
+            ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ steps.set-tags.outputs.PROD_TAG }} \
+            --tag ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:latest
+        fi
       shell: bash
-          
-    # can`t do this in step 'Set docker tag' because for some reason env.TAG is empty - probably is filled after the step is finished
+
     - name: Show published docker image tag and set it as output of job
       id: output-docker-tag
       run: |
-        echo "following tags for docker image: ${{ env.TAG }} were pushed"
-        
-        # set output tag from job, going for real tag 'test_deploy_*', or 'prod_*' not 'latest'
-        echo "TAG_TO_DEPLOY=$( echo  ${{ env.TAG }} | cut -d ',' -f 1)" >> "$GITHUB_OUTPUT"
+        TAG_TO_DEPLOY=$(echo "${{ env.TAGS }}" | cut -d ',' -f 1)
+        echo "following tags for docker image: ${{ env.TAGS }} were pushed"
+        echo "TAG_TO_DEPLOY=${TAG_TO_DEPLOY}" >> "$GITHUB_OUTPUT"
       shell: bash
-      
+
     - name: Create summary
       run: |
-        # create job summary
-        echo "### ## pushed tags: '${{ env.TAG }}' to aws ecr registry" >> $GITHUB_STEP_SUMMARY
+        echo "### ## pushed tags: '${{ env.TAGS }}' to aws ecr registry" >> $GITHUB_STEP_SUMMARY
         echo "### ## " >> $GITHUB_STEP_SUMMARY
         echo "### ## going to use following tag: '${{ steps.output-docker-tag.outputs.TAG_TO_DEPLOY }}' for deployment" >> $GITHUB_STEP_SUMMARY
         echo "### ## platform: '${{ inputs.platform }}'" >> $GITHUB_STEP_SUMMARY
