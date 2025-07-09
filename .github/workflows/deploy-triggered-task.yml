@@ -7,6 +7,9 @@ on:
       aws-secret-access-key:
         required: true
         description: "set this to AWS_SECRET_ACCESS_KEY of your user"
+      slack-webhook-url:
+        required: true
+        description: "Slack webhook URL for notifications"        
     inputs:
       aws-region:
         required: true
@@ -109,3 +112,30 @@ jobs:
             aws scheduler update-schedule --name $name --cli-input-json file://${name}-targets-ready.json > put-targets-${name}.json
             cat put-targets-${name}.json
           done
+
+  notify-slack:
+    if: always() && contains(toJson(needs.deploy.result), 'failure') && contains(inputs.ecs-cluster, 'prod')
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get short commit hash
+        id: short_commit
+        run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT        
+
+      - name: Notify Slack
+        uses: PowereX-jsa/pwx-actions/common-actions/notify-slack@master
+        with:
+          slack-webhook-url: ${{ secrets.slack-webhook-url }}
+          status: ${{ needs.deploy.result }}
+          repository: ${{ github.repository }}
+          commit-url: ${{ format('{0}/{1}/commit/{2}', github.server_url, github.repository, github.sha) }}
+          commit-slug: ${{ steps.short_commit.outputs.SHORT_SHA }}
+          author: ${{ github.actor }}
+          job: "ECS Deployment"
+          event-name: ${{ github.event_name }}
+          workflow: ${{ github.workflow }}
+          run-id: ${{ github.run_id }}
+          message: "ECS Deployment: ${{ inputs.app }} to ${{ inputs.ecs-cluster }}"          
