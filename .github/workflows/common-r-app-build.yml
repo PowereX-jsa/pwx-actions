@@ -37,6 +37,10 @@ on:
         type: string
         default: 0.14.0
         description: "version of renv library that handles r packages for the app"
+      install-package-command:
+        required: false
+        type: string
+        default: echo "no command"
       r-image:
         required: false
         type: string
@@ -103,6 +107,12 @@ jobs:
           working-dir: ${{ inputs.working-directory }}
           renv-version: ${{ inputs.renv-version }}
           cache-version: ${{ inputs.cache-version }}
+
+      # used in poweRex.nomination -> parallel run - needs to be installed before tests
+      - name: Install package via r cmd
+        run: |
+            ${{ inputs.install-package-command }}
+        shell: bash {0}
              
       # Declares the repository safe and not under dubious ownership.
       - name: Add repository to git safe directories
