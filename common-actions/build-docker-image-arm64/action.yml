@@ -1,0 +1,130 @@
+name: 'build-docker-image-arm64'
+description: 'Action for building docker image and pushing it to specified aws ecr repository'
+author: 'rasto.liska@powerex.io'
+inputs:
+  docker-repo:
+    required: true
+    type: string
+    description: "name of the docker repo in aws ecr where the image will be pushed"
+  working-directory:
+    required: true
+    type: string
+    description: "set this to working directory where the app with dockerfile is located"
+  aws-access-key-id:
+    required: true
+    description: "set this to AWS_ACCESS_KEY_ID of your user"
+  aws-secret-access-key:
+    required: true
+    description: "set this to AWS_SECRET_ACCESS_KEY of your user"
+  aws-account-id:
+    required: true
+    description: "set this to AWS_ACCOUNT_ID of your user"
+  platform:
+    required: false
+    type: string
+    default: "linux/amd64"
+    description: "Platform for Docker build (e.g., 'linux/arm64')"
+  build-args:
+    required: false
+    type: string
+    description: "Additional build arguments to pass to Docker"
+outputs:
+  tag-to-deploy:
+    description: "Published image tag for immediate deployment"
+    value: ${{ steps.output-docker-tag.outputs.TAG_TO_DEPLOY }}
+runs:
+  using: "composite"
+  steps:
+    - name: Set docker tag
+      id: set-tags
+      run: |
+        if [[ "${{ github.ref }}" == 'refs/heads/master' || "${{ github.ref }}" == 'refs/heads/main' ]]; then
+          PROD_TAG="prod_$(git rev-parse --short HEAD)"
+          echo "TAGS=${PROD_TAG},latest" >> "$GITHUB_ENV"
+          echo "PROD_TAG=${PROD_TAG}" >> "$GITHUB_OUTPUT"
+          echo "IS_PROD=true" >> "$GITHUB_OUTPUT"
+        else
+          TEST_TAG=$(echo "test-deploy_${{ github.head_ref }}" | tr -s '/' '_' | tr -s '#' '_')
+          echo "TAGS=${TEST_TAG}" >> "$GITHUB_ENV"
+          echo "IS_PROD=false" >> "$GITHUB_OUTPUT"
+        fi
+      shell: bash
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        driver-opts: network=host
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        aws-region: eu-central-1
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push with platform support
+      id: docker_build
+      run: |
+        export DOCKER_BUILDKIT=1
+        
+        # Parse build args if provided
+        BUILD_ARGS=""
+        if [[ -n "${{ inputs.build-args }}" ]]; then
+          while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+              BUILD_ARGS="$BUILD_ARGS --build-arg $line"
+            fi
+          done <<< "${{ inputs.build-args }}"
+        fi
+
+        # For prod builds, ALWAYS use the PROD_TAG as primary tag
+        if [[ "${{ steps.set-tags.outputs.IS_PROD }}" == "true" ]]; then
+          PRIMARY_TAG="${{ steps.set-tags.outputs.PROD_TAG }}"
+        else
+          PRIMARY_TAG=$(echo "${{ env.TAGS }}" | cut -d ',' -f 1)
+        fi
+        
+        docker buildx build \
+          --platform ${{ inputs.platform }} \
+          --push \
+          --cache-from type=registry,ref=${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:buildcache \
+          --cache-to type=inline \
+          --tag ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${PRIMARY_TAG} \
+          --file ${{ inputs.working-directory }}/Dockerfile \
+          $BUILD_ARGS \
+          ${{ inputs.working-directory }}
+
+        # If it's a prod build, also tag and push 'latest'
+        if [[ "${{ steps.set-tags.outputs.IS_PROD }}" == "true" ]]; then
+          docker buildx imagetools create \
+            ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ steps.set-tags.outputs.PROD_TAG }} \
+            --tag ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:latest
+        fi
+      shell: bash
+
+    - name: Show published docker image tag and set it as output of job
+      id: output-docker-tag
+      run: |
+        # For prod builds, use the prod tag as TAG_TO_DEPLOY
+        if [[ "${{ steps.set-tags.outputs.IS_PROD }}" == "true" ]]; then
+          TAG_TO_DEPLOY="${{ steps.set-tags.outputs.PROD_TAG }}"
+        else
+          # For non-prod builds, use the first (and only) tag
+          TAG_TO_DEPLOY=$(echo "${{ env.TAGS }}" | cut -d ',' -f 1)
+        fi
+        
+        echo "following tags for docker image: ${{ env.TAGS }} were pushed"
+        echo "TAG_TO_DEPLOY=${TAG_TO_DEPLOY}" >> "$GITHUB_OUTPUT"
+      shell: bash
+
+    - name: Create summary
+      run: |
+        echo "### ## pushed tags: '${{ env.TAGS }}' to aws ecr registry" >> $GITHUB_STEP_SUMMARY
+        echo "### ## " >> $GITHUB_STEP_SUMMARY
+        echo "### ## going to use following tag: '${{ steps.output-docker-tag.outputs.TAG_TO_DEPLOY }}' for deployment" >> $GITHUB_STEP_SUMMARY
+        echo "### ## platform: '${{ inputs.platform }}'" >> $GITHUB_STEP_SUMMARY
+      shell: bash
