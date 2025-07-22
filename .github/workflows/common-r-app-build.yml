@@ -80,6 +80,7 @@ jobs:
     env:
       # default env var name under which R uses token for package installation
       GITHUB_PAT: "${{ secrets.personal-access-token-github }}"
+      DOCKER_BUILDKIT: 1
 
     defaults:
       run:
@@ -95,6 +96,18 @@ jobs:
           lfs: false
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
           set-safe-directory: true
+
+      - name: Cache R packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/renv
+            ~/.cache/R
+            ${{ inputs.working-directory }}/renv/library
+            ${{ inputs.working-directory }}/renv/cache
+          key: ${{ inputs.runner-group }}-${{ inputs.platform }}-renv-${{ hashFiles(format('{0}/renv.lock', inputs.working-directory)) }}-${{ inputs.cache-version }}
+          restore-keys: |
+            ${{ inputs.runner-group }}-${{ inputs.platform }}-renv-
 
       - name: Run pre-install commands
         if: ${{ inputs.pre-install-commands != '' }}
@@ -143,9 +156,10 @@ jobs:
           gnupg \
           lsb-release && \
           curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
-          echo "deb [arch=arm64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+          ARCH=$(dpkg --print-architecture) && \
+          echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
           apt-get update && \
-          apt-get install -y docker-ce-cli
+          apt-get install -y docker-ce-cli docker-buildx-plugin
         shell: bash
 
       # building docker images
@@ -161,3 +175,4 @@ jobs:
           platform: ${{ inputs.platform }}
           build-args: |
             GITHUB_PAT=${{ secrets.personal-access-token-github }}
+            BUILDKIT_INLINE_CACHE=1
