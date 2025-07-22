@@ -175,4 +175,3 @@ jobs:
           platform: ${{ inputs.platform }}
           build-args: |
             GITHUB_PAT=${{ secrets.personal-access-token-github }}
-            BUILDKIT_INLINE_CACHE=1
