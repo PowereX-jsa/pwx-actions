@@ -92,7 +92,7 @@ runs:
           --platform ${{ inputs.platform }} \
           --push \
           --cache-from type=registry,ref=${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:buildcache \
-          --cache-to type=registry,ref=${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:buildcache,mode=max \
+          --cache-to type=inline \
           --tag ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${PRIMARY_TAG} \
           --file ${{ inputs.working-directory }}/Dockerfile \
           $BUILD_ARGS \
