@@ -50,6 +50,16 @@ jobs:
           echo "all listed services/task defs:"
           echo "${defs}"
 
+          if [[ ! -z "$defs" ]]; then
+
+            echo "no task definitions found for app: '${{ inputs.app }}'"
+
+            # add empty json as step/job output
+            echo "instances-matrix=$( echo {}}" >> "$GITHUB_OUTPUT"
+
+            return
+          fi
+
           matrix_json_definition="{ \"instance\" : [ "
 
           # add instances
