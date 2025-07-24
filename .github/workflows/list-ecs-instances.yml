@@ -47,10 +47,10 @@ jobs:
           # aws ecs list-task-definitions --status ACTIVE | grep ${{ inputs.app }} | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq
 
           # get all task definitions for requested app
-          defs=$(aws ecs list-task-definitions --status ACTIVE | grep ${{ inputs.app }} | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq || "")
+          defs=$(aws ecs list-task-definitions --status ACTIVE | grep ${{ inputs.app }} | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq || echo "")
 
-          # echo "all listed services/task defs:"
-          # echo "${defs}"
+          echo "all listed services/task defs:"
+          echo "${defs}"
 
           # if [[ ! -z "$defs" ]]; then
 
