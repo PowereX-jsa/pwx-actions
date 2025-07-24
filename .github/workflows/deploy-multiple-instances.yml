@@ -40,6 +40,7 @@ jobs:
       app: ${{ inputs.app }}
 
   deploy:
+    if: ${{ needs.list-instances.outputs.instances-matrix }} 
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.list-instances.outputs.instances-matrix) }}
