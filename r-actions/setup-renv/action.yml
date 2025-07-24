@@ -17,12 +17,29 @@ inputs:
 runs:
   using: "composite"
   steps:
+      - name: Debug environment info
+        run: |
+          echo "=== ENVIRONMENT DEBUG INFO ==="
+          echo "Runner OS: ${{ runner.os }}"
+          echo "Working directory: ${{ inputs.working-dir }}"
+          echo "Cache version: ${{ inputs.cache-version }}"
+          echo "Current directory: $(pwd)"
+          echo "R version: $(R --version | head -n 1)"
+          echo "Architecture: $(uname -m)"
+          echo "Container info:"
+          cat /etc/os-release || echo "No os-release file"
+          echo "=== END DEBUG INFO ==="
+        shell: bash
+
       - name: Check if lockfile exist
         run: |
           FILE=${{ inputs.working-dir }}/renv.lock
 
           if [ -f "$FILE" ]; then
               echo "$FILE found."
+              echo "Lockfile hash: $(sha256sum $FILE)"
+              echo "First 5 lines of lockfile:"
+              head -n 5 $FILE
           else
               echo "$FILE does not exist."
               exit 1
@@ -48,7 +65,37 @@ runs:
 
           # set renv directory as env variable for cache
           system(paste0("echo 'RENV_LIB_DIR=", "${{ inputs.working-dir }}/renv", "' >> $GITHUB_ENV"))
+          
+          # Debug output
+          cat("Global lib path:", renv_global_lib_path, "\n")
+          cat("Renv lib dir:", "${{ inputs.working-dir }}/renv", "\n")
         shell: Rscript {0}
+
+      - name: Debug cache keys
+        run: |
+          echo "=== CACHE KEY DEBUG ==="
+          echo "Local cache key: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles('**/renv.lock') }}"
+          echo "Local restore key: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}"
+          echo "Global cache key: global-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles('**/renv.lock') }}"
+          echo "RENV_LIB_DIR: ${{ env.RENV_LIB_DIR }}"
+          echo "GLOBAL_LIB_DIR: ${{ env.GLOBAL_LIB_DIR }}"
+          echo "=== END CACHE DEBUG ==="
+        shell: bash
+
+      - name: Check existing renv directory before cache
+        run: |
+          echo "=== BEFORE CACHE RESTORE ==="
+          if [ -d "${{ env.RENV_LIB_DIR }}" ]; then
+            echo "Renv directory exists"
+            echo "Contents:"
+            ls -la "${{ env.RENV_LIB_DIR }}" || echo "Cannot list directory"
+            echo "Library contents:"
+            ls -la "${{ env.RENV_LIB_DIR }}/library" 2>/dev/null || echo "No library directory"
+          else
+            echo "Renv directory does not exist"
+          fi
+          echo "=== END PRE-CACHE CHECK ==="
+        shell: bash
 
       - name: Always upload local cache
         uses: pat-s/always-upload-cache@v3.0.11
@@ -56,6 +103,19 @@ runs:
           path: "${{ env.RENV_LIB_DIR }}"
           key: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles('**/renv.lock') }}
           restore-keys: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}
+
+      - name: Check cache restore status
+        run: |
+          echo "=== AFTER LOCAL CACHE RESTORE ==="
+          if [ -d "${{ env.RENV_LIB_DIR }}/library" ]; then
+            echo "Library directory exists after cache restore"
+            echo "Number of packages: $(find ${{ env.RENV_LIB_DIR }}/library -maxdepth 3 -name DESCRIPTION | wc -l)"
+            echo "Directory size: $(du -sh ${{ env.RENV_LIB_DIR }}/library)"
+          else
+            echo "No library directory after cache restore - cache miss!"
+          fi
+          echo "=== END CACHE STATUS ==="
+        shell: bash
 
       - name: Always upload global cache
         uses: pat-s/always-upload-cache@v3.0.11
@@ -66,17 +126,35 @@ runs:
 
       - name: Install dependencies from lockfile
         run: |
-
+          # Debug before restore
+          cat("=== STARTING RENV RESTORE ===\n")
+          
           # restore to global lib
           print(paste0("installing to lib: ", renv:::renv_libpaths_resolve(library = NULL)))
+          
+          # Check if packages already exist
+          existing_packages <- list.files(renv:::renv_libpaths_resolve(library = NULL))
+          cat("Existing packages in global lib:", length(existing_packages), "\n")
+          
+          # Time the restore
+          start_time <- Sys.time()
           renv::restore(project = "${{ inputs.working-dir }}")
-
+          end_time <- Sys.time()
+          cat("Global restore took:", difftime(end_time, start_time, units = "secs"), "seconds\n")
+          
           # activate renv, restore to local renv dir
           renv::activate(project = "${{ inputs.working-dir }}")
           print(paste0("installing to lib: ", renv:::renv_libpaths_resolve(library = NULL)))
-
+          
+          # Check local packages
+          local_packages <- list.files(renv:::renv_libpaths_resolve(library = NULL))
+          cat("Existing packages in local lib:", length(local_packages), "\n")
+          
+          start_time <- Sys.time()
           renv::restore(project = "${{ inputs.working-dir }}")
-
+          end_time <- Sys.time()
+          cat("Local restore took:", difftime(end_time, start_time, units = "secs"), "seconds\n")
+          
           # isolate and deactivate renv
           renv::isolate(project = "${{ inputs.working-dir }}")
           renv::deactivate(project = "${{ inputs.working-dir }}")
@@ -85,6 +163,7 @@ runs:
           list.files(path = "${{ inputs.working-dir }}")
           list.files(path = "${{ inputs.working-dir }}/renv")
           
+          cat("=== RENV RESTORE COMPLETE ===\n")
         shell: Rscript {0}
 
       - name: List installed packages in renv
