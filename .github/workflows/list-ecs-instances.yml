@@ -50,15 +50,18 @@ jobs:
           echo "all listed services/task defs:"
           echo "${defs}"
 
-          if [[ ! -z "$defs" ]]; then
+          # if there are no instances, result of the job should be empty instances matrix
+          if [[ -z "$defs" ]]; then
 
             echo "no task definitions found for app: '${{ inputs.app }}'"
 
             # add empty json as step/job output
-            echo "instances-matrix=$( echo { \"instance\" : [ ] } )" >> "$GITHUB_OUTPUT"
+            echo "instances-matrix=$( echo { \"instance\" : [ \"\" ] } )" >> "$GITHUB_OUTPUT"
 
             # add job summary
-            echo "### \#\# no instances found service - nothing to deploy" >> $GITHUB_STEP_SUMMARY
+            echo "### \#\# no instances found for service - nothing to deploy" >> $GITHUB_STEP_SUMMARY
+
+          # if there are instances, create matrix definition as job result
           else
 
             matrix_json_definition="{ \"instance\" : [ "
