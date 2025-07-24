@@ -103,7 +103,7 @@ jobs:
           ${{ inputs.pre-install-commands }}
 
       - name: Initialize global renv
-        uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@master
+        uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@feature/#31_r_actions_optimize_renv_caching_and_docker_setup
         with:
           working-dir: ${{ inputs.working-directory }}
           renv-version: ${{ inputs.renv-version }}
