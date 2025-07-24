@@ -30,8 +30,7 @@ on:
 
 jobs:
   list-instances:
-    # TODO master
-    uses: PowereX-jsa/pwx-actions/.github/workflows/list-ecs-instances.yml@feature/#2215_skip_deploy_if_there_are_no_instances
+    uses: PowereX-jsa/pwx-actions/.github/workflows/list-ecs-instances.yml@master
     secrets: 
       aws-access-key-id: ${{ secrets.aws-access-key-id }}
       aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
@@ -40,13 +39,13 @@ jobs:
       app: ${{ inputs.app }}
 
   deploy:
+    # run only if there are instances to deploy from previous job
     if: ${{ needs.list-instances.outputs.instances-matrix }} 
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.list-instances.outputs.instances-matrix) }}
     needs: [ list-instances ]
-    # TODO master
-    uses: PowereX-jsa/pwx-actions/.github/workflows/task-def-app-deploy.yml@feature/#2215_skip_deploy_if_there_are_no_instances
+    uses: PowereX-jsa/pwx-actions/.github/workflows/task-def-app-deploy.yml@master
     secrets:
       aws-access-key-id: ${{ secrets.aws-access-key-id }}
       aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
