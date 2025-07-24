@@ -45,30 +45,43 @@ jobs:
         id: get-all-instances
         run: |
           # get all task definitions for requested app
-          defs=$(aws ecs list-task-definitions --status ACTIVE | grep ${{ inputs.app }} | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq)
+          defs=$(aws ecs list-task-definitions --status ACTIVE | grep ${{ inputs.app }} | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq || echo "")
 
           echo "all listed services/task defs:"
           echo "${defs}"
 
-          matrix_json_definition="{ \"instance\" : [ "
+          # if there are no instances, do not add matrix as output
+          if [[ -z "$defs" ]]; then
 
-          # add instances
-          for def in ${defs}
-          do
-            echo "def: ${def} - adding to matrix"
+            echo "no task definitions found for app: '${{ inputs.app }}'"
 
-            matrix_json_definition+="\"${def}\","
-          done
+            # add job summary
+            echo "### \#\# no instances found for service - nothing to deploy" >> $GITHUB_STEP_SUMMARY
 
-          # finish end of the json
-          matrix_json_definition=${matrix_json_definition::-1}
-          matrix_json_definition="${matrix_json_definition} ] }"
+          # if there are instances, create matrix definition as job result
+          else
 
-          echo "final json matrix definition: '${matrix_json_definition}'"
+            matrix_json_definition="{ \"instance\" : [ "
 
-          # add to step/job output
-          echo "instances-matrix=$( echo  ${matrix_json_definition})" >> "$GITHUB_OUTPUT"
+            # add instances
+            for def in ${defs}
+            do
+              echo "def: ${def} - adding to matrix"
 
-          # add job summary
-          echo "### \#\# going to deploy following services: " >> $GITHUB_STEP_SUMMARY
-          echo "${defs} " >> $GITHUB_STEP_SUMMARY
+              matrix_json_definition+="\"${def}\","
+            done
+
+            # finish end of the json
+            matrix_json_definition=${matrix_json_definition::-1}
+            matrix_json_definition="${matrix_json_definition} ] }"
+
+            echo "final json matrix definition: '${matrix_json_definition}'"
+
+            # add to step/job output
+            echo "instances-matrix=$( echo  ${matrix_json_definition})" >> "$GITHUB_OUTPUT"
+
+            # add job summary
+            echo "### \#\# going to deploy following services: " >> $GITHUB_STEP_SUMMARY
+            echo "${defs} " >> $GITHUB_STEP_SUMMARY
+
+          fi

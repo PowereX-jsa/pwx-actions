@@ -39,6 +39,8 @@ jobs:
       app: ${{ inputs.app }}
 
   deploy:
+    # run only if there are instances to deploy from previous job
+    if: ${{ needs.list-instances.outputs.instances-matrix }} 
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.list-instances.outputs.instances-matrix) }}
@@ -55,8 +57,8 @@ jobs:
       image: ${{ inputs.image }}
 
   notify-slack:
-    if: always() && contains(toJson(needs.deploy.result), 'failure') && contains(inputs.ecs-cluster, 'prod')
-    needs: [deploy]
+    if: contains(inputs.ecs-cluster, 'prod') && contains(toJson(needs.deploy.result), 'failure')
+    needs: [ deploy ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
