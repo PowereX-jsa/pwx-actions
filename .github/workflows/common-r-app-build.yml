@@ -97,18 +97,6 @@ jobs:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
           set-safe-directory: true
 
-      - name: Cache R packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.local/share/renv
-            ~/.cache/R
-            ${{ inputs.working-directory }}/renv/library
-            ${{ inputs.working-directory }}/renv/cache
-          key: ${{ inputs.runner-group }}-${{ inputs.platform }}-renv-${{ hashFiles(format('{0}/renv.lock', inputs.working-directory)) }}-${{ inputs.cache-version }}
-          restore-keys: |
-            ${{ inputs.runner-group }}-${{ inputs.platform }}-renv-
-
       - name: Run pre-install commands
         if: ${{ inputs.pre-install-commands != '' }}
         run: |
@@ -147,20 +135,11 @@ jobs:
           test-dir: ${{ inputs.working-directory }}/tests/testthat
 
       # install docker cli
-      - name: Install Docker CLI
-        run: |
-          apt-get update && apt-get install -y \
-          apt-transport-https \
-          ca-certificates \
-          curl \
-          gnupg \
-          lsb-release && \
-          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
-          ARCH=$(dpkg --print-architecture) && \
-          echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-          apt-get update && \
-          apt-get install -y docker-ce-cli docker-buildx-plugin
-        shell: bash
+      - name: Setup Docker
+        uses: docker-practice/actions-setup-docker@v1
+        with:
+          docker_version: '26.1'
+          docker_buildx: true
 
       # building docker images
       - name: Build and push docker image
