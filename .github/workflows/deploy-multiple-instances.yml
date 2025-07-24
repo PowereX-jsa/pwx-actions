@@ -44,8 +44,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.list-instances.outputs.instances-matrix) }}
     needs: [ list-instances ]
-    if: ${{ matrix.instance != '' && matrix.instance != null }}
-    uses: PowereX-jsa/pwx-actions/.github/workflows/task-def-app-deploy.yml@master
+    # TODO master
+    uses: PowereX-jsa/pwx-actions/.github/workflows/task-def-app-deploy.yml@feature/#2215_skip_deploy_if_there_are_no_instances
     secrets:
       aws-access-key-id: ${{ secrets.aws-access-key-id }}
       aws-secret-access-key: ${{ secrets.aws-secret-access-key }}

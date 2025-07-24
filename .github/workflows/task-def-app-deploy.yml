@@ -49,6 +49,12 @@ jobs:
         shell: bash
 
     steps:
+      - name: Check and Skip if instance not set
+        if: ${{ matrix.instance == '' || matrix.instance == null }}
+        run: |
+          echo "Skipping job because instance is not set."
+          exit 0
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
