@@ -134,13 +134,6 @@ jobs:
         with:
           test-dir: ${{ inputs.working-directory }}/tests/testthat
 
-      # install docker cli
-      - name: Setup Docker
-        uses: docker-practice/actions-setup-docker@v1
-        with:
-          docker_version: '26.1'
-          docker_buildx: true
-
       # building docker images
       - name: Build and push docker image
         id: build-docker-image
