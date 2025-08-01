@@ -51,11 +51,6 @@ on:
         type: string
         default: "ubuntu-latest" 
         description: "Runner group to use (e.g., 'arm-group' for ARM64 builds)"
-      platform:
-        required: false
-        type: string
-        default: "linux/amd64"
-        description: "Platform for Docker build (e.g., 'linux/arm64')"
       pre-install-commands:
         required: false
         type: string
@@ -144,6 +139,5 @@ jobs:
           aws-account-id: ${{ secrets.aws-account-id }}
           docker-repo: ${{ inputs.docker-repo }}
           working-directory: ${{ inputs.working-directory }}
-          platform: ${{ inputs.platform }}
           build-args: |
             GITHUB_PAT=${{ secrets.personal-access-token-github }}
