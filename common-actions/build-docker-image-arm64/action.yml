@@ -73,6 +73,8 @@ runs:
         tags: |
           ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ env.TAG }}     
         build-args: ${{ inputs.build-args }}
+        cache-from: type=gha,scope=${{ inputs.docker-repo }}-arm64
+        cache-to: type=gha,mode=max,scope=${{ inputs.docker-repo }}-arm64
 
     # can`t do this in step 'Set docker tag' because for some reason env.TAG is empty - probably is filled after the step is finished
     - name: Show published docker image tag and set it as output of job
