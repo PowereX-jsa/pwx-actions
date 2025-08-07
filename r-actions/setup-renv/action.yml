@@ -43,10 +43,6 @@ runs:
           echo -e "\n===== Disk Space ====="
           df -h
           
-          echo -e "\n===== Environment Variables ====="
-          env | sort | head -50
-          echo "... (showing first 50 env vars)"
-          
           echo -e "\n===== GitHub Context Variables ====="
           echo "GITHUB_WORKSPACE: ${GITHUB_WORKSPACE}"
           echo "GITHUB_ACTION: ${GITHUB_ACTION}"
@@ -67,15 +63,10 @@ runs:
             echo "Not running in Docker container (/.dockerenv not found)"
           fi
           
-          if [ -f /run/secrets/kubernetes.io ]; then
-            echo "Running inside Kubernetes"
-          fi
-          
-          echo -e "\n===== Network Information ====="
-          ip addr show 2>/dev/null | head -20 || echo "ip command not available"
-          
-          echo -e "\n===== Process Information ====="
-          ps aux | head -10
+          echo -e "\n===== Important Environment Variables ====="
+          echo "ACTIONS_CACHE_URL: ${ACTIONS_CACHE_URL:-Not set}"
+          echo "ACTIONS_RUNTIME_TOKEN: ${ACTIONS_RUNTIME_TOKEN:+Set (hidden)}"
+          echo "ACTIONS_RUNTIME_URL: ${ACTIONS_RUNTIME_URL:-Not set}"
           
           echo "===== SYSTEM INFORMATION DEBUG END ====="
         shell: bash
@@ -131,71 +122,23 @@ runs:
           echo "===== ARCHITECTURE DETECTION END ====="
         shell: bash
 
-      # ============ PATH AND DIRECTORY INVESTIGATION ============
-      - name: Debug - Directory Structure
-        run: |
-          echo "===== DIRECTORY STRUCTURE DEBUG START ====="
-          echo "Current working directory: $(pwd)"
-          echo "Contents of current directory:"
-          ls -la
-          
-          echo -e "\n===== Working directory parameter: ${{ inputs.working-dir }} ====="
-          echo "Checking if working directory exists..."
-          if [ -d "${{ inputs.working-dir }}" ]; then
-            echo "Working directory exists"
-            echo "Contents of working directory:"
-            ls -la "${{ inputs.working-dir }}"
-            
-            echo -e "\nLooking for renv-related files:"
-            find "${{ inputs.working-dir }}" -name "renv*" -type f -o -name "renv" -type d 2>/dev/null | head -20
-          else
-            echo "ERROR: Working directory does not exist!"
-            echo "Attempting to list parent directory:"
-            ls -la "$(dirname "${{ inputs.working-dir }}")"
-          fi
-          
-          echo -e "\n===== GitHub Workspace Structure ====="
-          echo "GITHUB_WORKSPACE: ${GITHUB_WORKSPACE}"
-          if [ -d "${GITHUB_WORKSPACE}" ]; then
-            echo "Contents of GITHUB_WORKSPACE:"
-            ls -la "${GITHUB_WORKSPACE}" | head -20
-          fi
-          
-          echo "===== DIRECTORY STRUCTURE DEBUG END ====="
-        shell: bash
-
       # ============ CHECK LOCKFILE ============
-      - name: Check if lockfile exists (with debug)
+      - name: Check if lockfile exists
         run: |
-          echo "===== LOCKFILE CHECK DEBUG START ====="
+          echo "===== LOCKFILE CHECK START ====="
           FILE=${{ inputs.working-dir }}/renv.lock
           echo "Looking for lockfile at: $FILE"
-          echo "Absolute path would be: $(realpath "$FILE" 2>/dev/null || echo 'realpath failed')"
+          echo "Absolute path: $(realpath "$FILE" 2>/dev/null || echo 'realpath failed')"
           
           if [ -f "$FILE" ]; then
               echo "$FILE found."
               echo "File size: $(stat -c%s "$FILE" 2>/dev/null || stat -f%z "$FILE" 2>/dev/null || echo 'stat failed') bytes"
               echo "File permissions: $(ls -la "$FILE")"
-              echo "First 10 lines of lockfile:"
-              head -10 "$FILE"
-              echo "..."
-              echo "Last 5 lines of lockfile:"
-              tail -5 "$FILE"
-              
-              # Check if file is readable
-              if [ -r "$FILE" ]; then
-                echo "File is readable"
-              else
-                echo "WARNING: File exists but is not readable!"
-              fi
           else
               echo "ERROR: $FILE does not exist."
-              echo "Attempting to find any .lock files:"
-              find . -name "*.lock" -type f 2>/dev/null | head -10
-              echo "===== LOCKFILE CHECK DEBUG END (WITH ERROR) ====="
               exit 1
           fi
-          echo "===== LOCKFILE CHECK DEBUG END (SUCCESS) ====="
+          echo "===== LOCKFILE CHECK END ====="
         shell: bash
 
       # ============ R ENVIRONMENT CHECK ============
@@ -213,52 +156,58 @@ runs:
           echo -e "\nR session info:"
           Rscript -e 'sessionInfo()' || echo "Failed to get session info"
           
-          echo -e "\nR environment variables:"
-          Rscript -e 'Sys.getenv()' | head -20 || echo "Failed to get R env vars"
-          
           echo -e "\nChecking for existing renv installation:"
           Rscript -e 'if(requireNamespace("renv", quietly = TRUE)) { print(paste("renv version:", packageVersion("renv"))) } else { print("renv not installed") }'
           
           echo "===== R ENVIRONMENT DEBUG END ====="
         shell: bash
 
-      # ============ INSTALL RENV ============
-      - name: Install renv (with debug)
+      # ============ INSTALL RENV (FIXED) ============
+      - name: Install renv
         run: |
-          echo "===== RENV INSTALLATION DEBUG START ====="
-          echo "Installing renv version ${{ inputs.renv-version }}..."
+          print("===== RENV INSTALLATION START =====")
+          print(paste("Installing renv version:", "${{ inputs.renv-version }}"))
           
-          # install remotes package -> used for install specific renv version from github
-          if (require("remotes") == FALSE) {
+          # Check if remotes is installed
+          if (!requireNamespace("remotes", quietly = TRUE)) {
             print("Installing remotes package...")
-            install.packages("remotes")
+            install.packages("remotes", repos = "https://cloud.r-project.org")
             print("remotes installed successfully")
           } else {
             print(paste("remotes already installed, version:", packageVersion("remotes")))
           }
           
-          print("Installing renv from GitHub...")
-          print(paste("Target version:", "${{ inputs.renv-version }}"))
+          # Check if renv needs to be installed/updated
+          current_renv_version <- NULL
+          if (requireNamespace("renv", quietly = TRUE)) {
+            current_renv_version <- as.character(packageVersion("renv"))
+            print(paste("Current renv version:", current_renv_version))
+          }
           
-          # Set verbose mode for installation
-          options(verbose = TRUE)
+          target_version <- "${{ inputs.renv-version }}"
           
-          remotes::install_github("rstudio/renv@${{ inputs.renv-version }}", upgrade = "never", verbose = TRUE)
-          
-          print("renv installation completed")
-          print(paste("Installed renv version:", packageVersion("renv")))
+          if (is.null(current_renv_version) || current_renv_version != target_version) {
+            print(paste("Installing renv", target_version, "from GitHub..."))
+            remotes::install_github(paste0("rstudio/renv@", target_version), upgrade = "never")
+            print("renv installation completed")
+          } else {
+            print("renv is already at the target version")
+          }
           
           # Verify installation
           library(renv)
-          print("renv loaded successfully")
+          print(paste("renv loaded successfully, version:", packageVersion("renv")))
           
-          print("===== RENV INSTALLATION DEBUG END =====")
+          print("===== RENV INSTALLATION END =====")
         shell: Rscript {0}
 
-      # ============ SET UP RENV DIRECTORIES ============
-      - name: Set up renv dir as env variable (with debug)
+      # ============ SET UP RENV DIRECTORIES (FIXED) ============
+      - name: Set up renv dir as env variable
         run: |
-          print("===== RENV DIRECTORY SETUP DEBUG START =====")
+          print("===== RENV DIRECTORY SETUP START =====")
+          
+          # Load renv
+          library(renv)
           
           # Get library paths
           renv_global_lib_path <- renv:::renv_libpaths_resolve(library = NULL)[1]
@@ -267,9 +216,13 @@ runs:
           # Check if paths exist
           if (dir.exists(renv_global_lib_path)) {
             print("Global library path exists")
-            print(paste("Contents:", list.files(renv_global_lib_path)[1:min(10, length(list.files(renv_global_lib_path)))]))
+            existing_files <- list.files(renv_global_lib_path)
+            if (length(existing_files) > 0) {
+              print(paste("Contents (first 10):", paste(head(existing_files, 10), collapse = ", ")))
+            }
           } else {
-            print("WARNING: Global library path does not exist")
+            print("WARNING: Global library path does not exist, creating it...")
+            dir.create(renv_global_lib_path, recursive = TRUE, showWarnings = FALSE)
           }
           
           working_dir <- "${{ inputs.working-dir }}"
@@ -278,17 +231,20 @@ runs:
           
           if (dir.exists(renv_dir)) {
             print("Local renv directory exists")
-            print(paste("Contents:", list.files(renv_dir)))
+            print(paste("Contents:", paste(list.files(renv_dir), collapse = ", ")))
           } else {
-            print("Local renv directory does not exist - will be created")
+            print("Local renv directory does not exist - creating it...")
+            dir.create(renv_dir, recursive = TRUE, showWarnings = FALSE)
           }
           
           # Set environment variables
           system(paste0("echo 'GLOBAL_LIB_DIR=", renv_global_lib_path, "' >> $GITHUB_ENV"))
           system(paste0("echo 'RENV_LIB_DIR=", renv_dir, "' >> $GITHUB_ENV"))
           
-          print("Environment variables set")
-          print("===== RENV DIRECTORY SETUP DEBUG END =====")
+          print(paste("Environment variable GLOBAL_LIB_DIR set to:", renv_global_lib_path))
+          print(paste("Environment variable RENV_LIB_DIR set to:", renv_dir))
+          
+          print("===== RENV DIRECTORY SETUP END =====")
         shell: Rscript {0}
 
       # ============ DEBUG CACHE ENVIRONMENT ============
@@ -306,18 +262,24 @@ runs:
           echo -e "\nChecking if cache directories exist:"
           if [ -d "${GLOBAL_LIB_DIR}" ]; then
             echo "GLOBAL_LIB_DIR exists"
+            echo "Path: ${GLOBAL_LIB_DIR}"
             echo "Size: $(du -sh "${GLOBAL_LIB_DIR}" 2>/dev/null | cut -f1)"
             echo "Number of items: $(find "${GLOBAL_LIB_DIR}" -maxdepth 1 | wc -l)"
           else
-            echo "GLOBAL_LIB_DIR does not exist"
+            echo "GLOBAL_LIB_DIR does not exist or is not set"
+            echo "Creating directory: ${GLOBAL_LIB_DIR}"
+            mkdir -p "${GLOBAL_LIB_DIR}" 2>/dev/null || echo "Failed to create GLOBAL_LIB_DIR"
           fi
           
           if [ -d "${RENV_LIB_DIR}" ]; then
             echo "RENV_LIB_DIR exists"
+            echo "Path: ${RENV_LIB_DIR}"
             echo "Size: $(du -sh "${RENV_LIB_DIR}" 2>/dev/null | cut -f1)"
             echo "Number of items: $(find "${RENV_LIB_DIR}" -maxdepth 1 | wc -l)"
           else
-            echo "RENV_LIB_DIR does not exist"
+            echo "RENV_LIB_DIR does not exist or is not set"
+            echo "Creating directory: ${RENV_LIB_DIR}"
+            mkdir -p "${RENV_LIB_DIR}" 2>/dev/null || echo "Failed to create RENV_LIB_DIR"
           fi
           
           echo -e "\nCache keys that will be used:"
@@ -330,7 +292,7 @@ runs:
           
           # Test network connectivity to GitHub
           echo -e "\nTesting network connectivity:"
-          curl -Is https://api.github.com/rate_limit | head -n 1 || echo "Failed to reach GitHub API"
+          curl -Is https://api.github.com | head -n 1 || echo "Failed to reach GitHub API"
           
           echo "===== CACHE ENVIRONMENT DEBUG END ====="
         shell: bash
@@ -351,14 +313,15 @@ runs:
         run: |
           echo "===== POST LOCAL CACHE DEBUG START ====="
           echo "Checking cache action results..."
+          echo "RENV_LIB_DIR value: ${RENV_LIB_DIR}"
           
-          if [ -d "${RENV_LIB_DIR}" ]; then
-            echo "RENV_LIB_DIR still exists after cache action"
+          if [ -n "${RENV_LIB_DIR}" ] && [ -d "${RENV_LIB_DIR}" ]; then
+            echo "RENV_LIB_DIR exists after cache action"
             echo "Contents:"
             find "${RENV_LIB_DIR}" -type d -maxdepth 2 | head -20
             echo "Total size: $(du -sh "${RENV_LIB_DIR}" 2>/dev/null | cut -f1)"
           else
-            echo "RENV_LIB_DIR does not exist after cache action"
+            echo "RENV_LIB_DIR does not exist or is empty after cache action"
           fi
           
           # Check for any error messages in the environment
@@ -384,26 +347,27 @@ runs:
         run: |
           echo "===== POST GLOBAL CACHE DEBUG START ====="
           echo "Checking cache action results..."
+          echo "GLOBAL_LIB_DIR value: ${GLOBAL_LIB_DIR}"
           
-          if [ -d "${GLOBAL_LIB_DIR}" ]; then
-            echo "GLOBAL_LIB_DIR still exists after cache action"
+          if [ -n "${GLOBAL_LIB_DIR}" ] && [ -d "${GLOBAL_LIB_DIR}" ]; then
+            echo "GLOBAL_LIB_DIR exists after cache action"
             echo "Contents:"
             find "${GLOBAL_LIB_DIR}" -type d -maxdepth 2 | head -20
             echo "Total size: $(du -sh "${GLOBAL_LIB_DIR}" 2>/dev/null | cut -f1)"
           else
-            echo "GLOBAL_LIB_DIR does not exist after cache action"
+            echo "GLOBAL_LIB_DIR does not exist or is empty after cache action"
           fi
           
           echo "===== POST GLOBAL CACHE DEBUG END ====="
         shell: bash
 
       # ============ INSTALL DEPENDENCIES ============
-      - name: Install dependencies from lockfile (with debug)
+      - name: Install dependencies from lockfile
         run: |
-          print("===== DEPENDENCY INSTALLATION DEBUG START =====")
+          print("===== DEPENDENCY INSTALLATION START =====")
           
-          # Enable verbose mode
-          options(verbose = TRUE)
+          # Load renv
+          library(renv)
           
           # Function to safely print directory contents
           safe_list_files <- function(path, max_items = 10) {
@@ -435,7 +399,9 @@ runs:
             print("Global restore completed successfully")
           }, error = function(e) {
             print(paste("ERROR during global restore:", e$message))
-            print(traceback())
+            print("Attempting to continue...")
+          }, warning = function(w) {
+            print(paste("WARNING during global restore:", w$message))
           })
           
           # Check what was installed
@@ -459,7 +425,9 @@ runs:
             print("Local restore completed successfully")
           }, error = function(e) {
             print(paste("ERROR during local restore:", e$message))
-            print(traceback())
+            print("Attempting to continue...")
+          }, warning = function(w) {
+            print(paste("WARNING during local restore:", w$message))
           })
           
           # Check what was installed
@@ -489,51 +457,55 @@ runs:
           print("Contents of renv directory:")
           safe_list_files(file.path(working_dir, "renv"))
           
-          print("===== DEPENDENCY INSTALLATION DEBUG END =====")
+          print("===== DEPENDENCY INSTALLATION END =====")
         shell: Rscript {0}
 
       # ============ FINAL VERIFICATION ============
-      - name: List installed packages in renv (with debug)
+      - name: List installed packages in renv
         run: |
-          echo "===== FINAL RENV PACKAGES DEBUG START ====="
+          echo "===== FINAL RENV PACKAGES START ====="
           echo "RENV_LIB_DIR: ${RENV_LIB_DIR}"
           
-          if [ -d "${RENV_LIB_DIR}/library/" ]; then
+          if [ -n "${RENV_LIB_DIR}" ] && [ -d "${RENV_LIB_DIR}/library/" ]; then
             echo "Finding all packages in renv library:"
-            find "${RENV_LIB_DIR}/library/" -maxdepth 3 -type d -ls
+            find "${RENV_LIB_DIR}/library/" -maxdepth 3 -type d -ls | head -30
             
             echo -e "\nTotal package count:"
             find "${RENV_LIB_DIR}/library/" -maxdepth 3 -type d | wc -l
             
             echo -e "\nDisk usage:"
-            du -sh "${RENV_LIB_DIR}/library/"
+            du -sh "${RENV_LIB_DIR}/library/" 2>/dev/null || echo "Unable to calculate disk usage"
           else
-            echo "ERROR: ${RENV_LIB_DIR}/library/ does not exist!"
-            echo "Checking parent directory:"
-            ls -la "${RENV_LIB_DIR}/" 2>/dev/null || echo "Parent directory also missing"
+            echo "WARNING: ${RENV_LIB_DIR}/library/ does not exist or RENV_LIB_DIR is not set!"
+            echo "RENV_LIB_DIR value: '${RENV_LIB_DIR}'"
+            if [ -n "${RENV_LIB_DIR}" ]; then
+              echo "Checking parent directory:"
+              ls -la "${RENV_LIB_DIR}/" 2>/dev/null || echo "Parent directory also missing"
+            fi
           fi
-          echo "===== FINAL RENV PACKAGES DEBUG END ====="
+          echo "===== FINAL RENV PACKAGES END ====="
         shell: bash
         
-      - name: List installed packages in global library dir (with debug)
+      - name: List installed packages in global library dir
         run: |
-          echo "===== FINAL GLOBAL PACKAGES DEBUG START ====="
+          echo "===== FINAL GLOBAL PACKAGES START ====="
           echo "GLOBAL_LIB_DIR: ${GLOBAL_LIB_DIR}"
           
-          if [ -d "${GLOBAL_LIB_DIR}/" ]; then
+          if [ -n "${GLOBAL_LIB_DIR}" ] && [ -d "${GLOBAL_LIB_DIR}/" ]; then
             echo "Finding all packages in global library:"
-            find "${GLOBAL_LIB_DIR}/" -maxdepth 3 -type d -ls | head -50
-            echo "... (showing first 50 entries)"
+            find "${GLOBAL_LIB_DIR}/" -maxdepth 3 -type d -ls | head -30
+            echo "... (showing first 30 entries)"
             
             echo -e "\nTotal package count:"
             find "${GLOBAL_LIB_DIR}/" -maxdepth 3 -type d | wc -l
             
             echo -e "\nDisk usage:"
-            du -sh "${GLOBAL_LIB_DIR}/"
+            du -sh "${GLOBAL_LIB_DIR}/" 2>/dev/null || echo "Unable to calculate disk usage"
           else
-            echo "ERROR: ${GLOBAL_LIB_DIR}/ does not exist!"
+            echo "WARNING: ${GLOBAL_LIB_DIR}/ does not exist or GLOBAL_LIB_DIR is not set!"
+            echo "GLOBAL_LIB_DIR value: '${GLOBAL_LIB_DIR}'"
           fi
-          echo "===== FINAL GLOBAL PACKAGES DEBUG END ====="
+          echo "===== FINAL GLOBAL PACKAGES END ====="
         shell: bash
 
       # ============ SUMMARY DEBUG ============
@@ -557,5 +529,4 @@ runs:
           echo ""
           echo "Check the logs above for any ERROR or WARNING messages"
           echo "===== END DEBUG SUMMARY ====="
-
         shell: bash
