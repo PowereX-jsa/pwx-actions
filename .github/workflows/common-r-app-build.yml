@@ -92,17 +92,21 @@ jobs:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
           set-safe-directory: true
 
+      - name: Restore Renv package cache
+        uses: actions/cache/restore@v4
+        id: renv-cache
+        with:
+          path: |
+            ${{ inputs.working-directory }}/renv
+            /usr/local/lib/R/site-library
+          key: global-${{ runner.os }}-${{ inputs.working-directory }}-renv-${{ inputs.cache-version }}-${{ hashFiles(format('{0}/renv.lock', inputs.working-directory)) }}
+          restore-keys: |
+            global-${{ runner.os }}-${{ inputs.working-directory }}-renv-${{ inputs.cache-version }}-
+
       - name: Run pre-install commands
         if: ${{ inputs.pre-install-commands != '' }}
         run: |
           ${{ inputs.pre-install-commands }}
-
-      - name: Initialize global renv
-        uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@feature/#31_r_actions_optimize_renv_caching_and_docker_setup
-        with:
-          working-dir: ${{ inputs.working-directory }}
-          renv-version: ${{ inputs.renv-version }}
-          cache-version: ${{ inputs.cache-version }}
 
       # used in poweRex.nomination -> parallel run - needs to be installed before tests
       - name: Install package via r cmd
