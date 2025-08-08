@@ -13,7 +13,7 @@ on:
       aws-account-id:
         required: true
         description: "set this to AWS_ACCOUNT_ID of your user"
-    
+
     inputs:
       working-directory:
         required: true
@@ -27,6 +27,7 @@ on:
         required: true
         type: string
         description: "TRUE/FALSE flag that indicates if the tested code is package or not - it the tested code is r package, tests run via devtools otherwise run via testthat library"
+
       cache-version:
         required: false
         type: string
@@ -37,25 +38,11 @@ on:
         type: string
         default: 0.14.0
         description: "version of renv library that handles r packages for the app"
-      install-package-command:
-        required: false
-        type: string
-        default: echo "no command"
       r-image:
         required: false
         type: string
         default: "powerex/pwx-r:4.1.2"
         description: "r docker image on which the tests/build should ran, default r version is 4.1.2"
-      runner-group:
-        required: false
-        type: string
-        default: "ubuntu-latest" 
-        description: "Runner group to use (e.g., 'arm-group' for ARM64 builds)"
-      pre-install-commands:
-        required: false
-        type: string
-        default: ""
-        description: "Commands to run before renv initialization"
 
     outputs:
       tag-to-deploy:
@@ -64,24 +51,16 @@ on:
 
 jobs:
   common-r-app-build:
-    runs-on:
-      group: ${{ inputs.runner-group }}
-
+    runs-on: ubuntu-latest
     container:
       image: ${{ inputs.r-image }}
-      volumes:
-        - /var/run/docker.sock:/var/run/docker.sock
-
     env:
       # default env var name under which R uses token for package installation
       GITHUB_PAT: "${{ secrets.personal-access-token-github }}"
-      DOCKER_BUILDKIT: 1
-
     defaults:
       run:
         shell: bash
         working-directory: ${{ inputs.working-directory }}
-
     outputs:
       tag-to-deploy: ${{ steps.build-docker-image.outputs.tag-to-deploy }}
 
@@ -92,44 +71,32 @@ jobs:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
           set-safe-directory: true
 
-      - name: Restore Renv package cache
-        uses: actions/cache/restore@v4
-        id: renv-cache
+      - name: Initialize global renv
+        uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@feature/#31_r_actions_optimize_renv_caching_and_docker_setup
+
         with:
-          path: |
-            ${{ inputs.working-directory }}/renv
-            /usr/local/lib/R/site-library
-          key: global-${{ runner.os }}-${{ inputs.working-directory }}-renv-${{ inputs.cache-version }}-${{ hashFiles(format('{0}/renv.lock', inputs.working-directory)) }}
-          restore-keys: |
-            global-${{ runner.os }}-${{ inputs.working-directory }}-renv-${{ inputs.cache-version }}-
+          working-dir: ${{ inputs.working-directory }}
+          renv-version: ${{ inputs.renv-version }}
+          cache-version: ${{ inputs.cache-version }}
 
-      - name: Run pre-install commands
-        if: ${{ inputs.pre-install-commands != '' }}
-        run: |
-          ${{ inputs.pre-install-commands }}
-
-      # used in poweRex.nomination -> parallel run - needs to be installed before tests
-      - name: Install package via r cmd
-        run: |
-            ${{ inputs.install-package-command }}
-        shell: bash {0}
-             
       # Declares the repository safe and not under dubious ownership.
       - name: Add repository to git safe directories
         run: git config --global --add safe.directory $GITHUB_WORKSPACE
-             
+
       # if the r project is package, tests run via devtools
       - name: Run tests and report
         if: inputs.is-package == 'true'
         uses: PowereX-jsa/pwx-actions/r-actions/devtools-test-package@master
+
         with:
           package-dir: ${{ inputs.working-directory }}
           activate-renv: "TRUE"
-      
+
       # if r project is only scripts, tests run via simple testthat
       - name: Run tests and report
         if: inputs.is-package == 'false'
         uses: PowereX-jsa/pwx-actions/r-actions/run-tests@master
+
         with:
           test-dir: ${{ inputs.working-directory }}/tests/testthat
 
