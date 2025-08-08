@@ -38,11 +38,25 @@ on:
         type: string
         default: 0.14.0
         description: "version of renv library that handles r packages for the app"
+      install-package-command:
+        required: false
+        type: string
+        default: echo "no command"
       r-image:
         required: false
         type: string
         default: "powerex/pwx-r:4.1.2"
         description: "r docker image on which the tests/build should ran, default r version is 4.1.2"
+      runner-group:
+        required: false
+        type: string
+        default: "ubuntu-latest" 
+        description: "Runner group to use (e.g., 'arm-group' for ARM64 builds)"
+      pre-install-commands:
+        required: false
+        type: string
+        default: ""
+        description: "Commands to run before renv initialization"
 
     outputs:
       tag-to-deploy:
@@ -51,7 +65,9 @@ on:
 
 jobs:
   common-r-app-build:
-    runs-on: ubuntu-latest
+    runs-on:
+      group: ${{ inputs.runner-group }}
+
     container:
       image: ${{ inputs.r-image }}
     env:
