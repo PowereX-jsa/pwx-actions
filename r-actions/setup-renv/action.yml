@@ -53,18 +53,16 @@ runs:
       - name: Cache local renv
         uses: actions/cache@v4
         with:
-          path: ${{ env.RENV_LIB_DIR }}
-          key: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles(format('{0}/renv.lock', inputs.working-dir)) }}
-          restore-keys: |
-            local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}
+          path: "${{ env.RENV_LIB_DIR }}"
+          key: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles('**/renv.lock') }}
+          restore-keys: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}
 
       - name: Cache global R packages
         uses: actions/cache@v4
         with:
-          path: ${{ env.GLOBAL_LIB_DIR }}
-          key: global-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles(format('{0}/renv.lock', inputs.working-dir)) }}
-          restore-keys: |
-            global-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}
+          path: "${{ env.GLOBAL_LIB_DIR }}"
+          key: global-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles('**/renv.lock') }}
+          restore-keys: global-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}
 
       - name: Install dependencies from lockfile
         run: |
