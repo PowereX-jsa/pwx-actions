@@ -20,7 +20,7 @@ runs:
       - name: Check if lockfile exist
         run: |
           FILE=${{ inputs.working-dir }}/renv.lock
-
+          
           if [ -f "$FILE" ]; then
               echo "$FILE found."
           else
@@ -35,48 +35,52 @@ runs:
           if (require("remotes") == FALSE) {
             install.packages("remotes")
           }
-
+          
           remotes::install_github("rstudio/renv@${{ inputs.renv-version }}", upgrade = "never")
         shell: Rscript {0}
 
       - name: Set up renv dir as env variable
         run: |
           renv_global_lib_path <- renv:::renv_libpaths_resolve(library = NULL)[1]
-
+          
           # set global lib dir
           system(paste0("echo 'GLOBAL_LIB_DIR=", renv_global_lib_path, "' >> $GITHUB_ENV"))
-
+          
           # set renv directory as env variable for cache
           system(paste0("echo 'RENV_LIB_DIR=", "${{ inputs.working-dir }}/renv", "' >> $GITHUB_ENV"))
+          
+          # Create sanitized cache key prefix by replacing slashes with hyphens
+          working_dir_sanitized <- gsub("[./]", "-", "${{ inputs.working-dir }}")
+          working_dir_sanitized <- gsub("^-+|-+$", "", working_dir_sanitized)  # Remove leading/trailing hyphens
+          system(paste0("echo 'CACHE_KEY_PREFIX=", working_dir_sanitized, "' >> $GITHUB_ENV"))
         shell: Rscript {0}
 
       - name: Always upload local cache
         uses: pat-s/always-upload-cache@v3.0.11
         with:
           path: "${{ env.RENV_LIB_DIR }}"
-          key: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles('**/renv.lock') }}
-          restore-keys: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}
+          key: local-${{ runner.os }}-${{ env.CACHE_KEY_PREFIX }}-renv-${{ inputs.cache-version }}-${{ hashFiles('**/renv.lock') }}
+          restore-keys: local-${{ runner.os }}-${{ env.CACHE_KEY_PREFIX }}-renv-${{ inputs.cache-version }}
 
       - name: Always upload global cache
         uses: pat-s/always-upload-cache@v3.0.11
         with:
           path: "${{ env.GLOBAL_LIB_DIR }}"
-          key: global-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles('**/renv.lock') }}
-          restore-keys: global-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}
+          key: global-${{ runner.os }}-${{ env.CACHE_KEY_PREFIX }}-renv-${{ inputs.cache-version }}-${{ hashFiles('**/renv.lock') }}
+          restore-keys: global-${{ runner.os }}-${{ env.CACHE_KEY_PREFIX }}-renv-${{ inputs.cache-version }}
 
       - name: Install dependencies from lockfile
         run: |
-
           # restore to global lib
           print(paste0("installing to lib: ", renv:::renv_libpaths_resolve(library = NULL)))
           renv::restore(project = "${{ inputs.working-dir }}")
-
+          
           # activate renv, restore to local renv dir
           renv::activate(project = "${{ inputs.working-dir }}")
           print(paste0("installing to lib: ", renv:::renv_libpaths_resolve(library = NULL)))
-
+          
           renv::restore(project = "${{ inputs.working-dir }}")
-
+          
           # isolate and deactivate renv
           renv::isolate(project = "${{ inputs.working-dir }}")
           renv::deactivate(project = "${{ inputs.working-dir }}")
