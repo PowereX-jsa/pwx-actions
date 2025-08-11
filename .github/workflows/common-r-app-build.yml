@@ -146,22 +146,6 @@ jobs:
         with:
           test-dir: ${{ inputs.working-directory }}/tests/testthat
 
-      # install docker cli
-      - name: Install Docker CLI
-        run: |
-          apt-get update && apt-get install -y \
-          apt-transport-https \
-          ca-certificates \
-          curl \
-          gnupg \
-          lsb-release && \
-          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
-          ARCH=$(dpkg --print-architecture) && \
-          echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-          apt-get update && \
-          apt-get install -y docker-ce-cli docker-buildx-plugin
-        shell: bash
-
       # building docker images
       - name: Build and push docker image
         id: build-docker-image
