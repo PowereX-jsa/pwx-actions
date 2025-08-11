@@ -48,34 +48,23 @@ runs:
           
           # set renv directory as env variable for cache
           system(paste0("echo 'RENV_LIB_DIR=", "${{ inputs.working-dir }}/renv", "' >> $GITHUB_ENV"))
-          
-          # Create sanitized cache key prefix
-          working_dir_sanitized <- gsub("[./]", "-", "${{ inputs.working-dir }}")
-          working_dir_sanitized <- gsub("^-+|-+$", "", working_dir_sanitized)
-          system(paste0("echo 'CACHE_KEY_PREFIX=", working_dir_sanitized, "' >> $GITHUB_ENV"))
-          
-          # Get R version for cache key
-          r_version <- paste0(R.version$major, ".", R.version$minor)
-          system(paste0("echo 'R_VERSION=", r_version, "' >> $GITHUB_ENV"))
         shell: Rscript {0}
 
       - name: Cache local renv
         uses: actions/cache@v4
         with:
           path: ${{ env.RENV_LIB_DIR }}
-          key: ${{ runner.os }}-renv-local-${{ env.R_VERSION }}-${{ inputs.cache-version }}-${{ hashFiles(format('{0}/renv.lock', inputs.working-dir)) }}
+          key: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles(format('{0}/renv.lock', inputs.working-dir)) }}
           restore-keys: |
-            ${{ runner.os }}-renv-local-${{ env.R_VERSION }}-${{ inputs.cache-version }}-
-            ${{ runner.os }}-renv-local-${{ env.R_VERSION }}-
+            local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}
 
       - name: Cache global R packages
         uses: actions/cache@v4
         with:
           path: ${{ env.GLOBAL_LIB_DIR }}
-          key: ${{ runner.os }}-renv-global-${{ env.R_VERSION }}-${{ inputs.cache-version }}-${{ hashFiles(format('{0}/renv.lock', inputs.working-dir)) }}
+          key: global-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles(format('{0}/renv.lock', inputs.working-dir)) }}
           restore-keys: |
-            ${{ runner.os }}-renv-global-${{ env.R_VERSION }}-${{ inputs.cache-version }}-
-            ${{ runner.os }}-renv-global-${{ env.R_VERSION }}-
+            global-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}
 
       - name: Install dependencies from lockfile
         run: |
