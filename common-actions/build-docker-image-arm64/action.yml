@@ -75,6 +75,8 @@ runs:
         build-args: ${{ inputs.build-args }}
         cache-from: type=gha,scope=${{ inputs.docker-repo }}-arm64
         cache-to: type=gha,mode=max,scope=${{ inputs.docker-repo }}-arm64
+        provenance: false    # Disable provenance attestations -> repo metadata
+        sbom: false          # Disable SBOM attestations -> repo metadata
 
     # can`t do this in step 'Set docker tag' because for some reason env.TAG is empty - probably is filled after the step is finished
     - name: Show published docker image tag and set it as output of job
