@@ -51,14 +51,14 @@ runs:
         shell: Rscript {0}
 
       - name: Always upload local cache
-        uses: actions/cache@v4
+        uses: pat-s/always-upload-cache@v3.0.11
         with:
           path: "${{ env.RENV_LIB_DIR }}"
           key: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles('**/renv.lock') }}
           restore-keys: local-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}
 
       - name: Always upload global cache
-        uses: actions/cache@v4
+        uses: pat-s/always-upload-cache@v3.0.11
         with:
           path: "${{ env.GLOBAL_LIB_DIR }}"
           key: global-${{ runner.os }}-${{ inputs.working-dir }}-renv-${{ inputs.cache-version }}-${{ hashFiles('**/renv.lock') }}
@@ -66,6 +66,7 @@ runs:
 
       - name: Install dependencies from lockfile
         run: |
+
           # restore to global lib
           print(paste0("installing to lib: ", renv:::renv_libpaths_resolve(library = NULL)))
           renv::restore(project = "${{ inputs.working-dir }}")
@@ -79,18 +80,18 @@ runs:
           # isolate and deactivate renv
           renv::isolate(project = "${{ inputs.working-dir }}")
           renv::deactivate(project = "${{ inputs.working-dir }}")
-
+          
           # list installed packages in local renv
           list.files(path = "${{ inputs.working-dir }}")
           list.files(path = "${{ inputs.working-dir }}/renv")
-
+          
         shell: Rscript {0}
 
       - name: List installed packages in renv
         run: |
           find "${{ env.RENV_LIB_DIR }}/library/" -maxdepth 3 -type d -ls
         shell: bash
-
+        
       - name: List installed packages in global library dir
         run: |
           find "${{ env.GLOBAL_LIB_DIR }}/" -maxdepth 3 -type d -ls
