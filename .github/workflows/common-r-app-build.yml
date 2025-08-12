@@ -95,6 +95,12 @@ jobs:
           renv-version: ${{ inputs.renv-version }}
           cache-version: ${{ inputs.cache-version }}
 
+      # used in poweRex.nomination -> parallel run - needs to be installed before tests
+      - name: Install package via r cmd
+        run: |
+            ${{ inputs.install-package-command }}
+        shell: bash {0}
+
       # Declares the repository safe and not under dubious ownership.
       - name: Add repository to git safe directories
         run: git config --global --add safe.directory $GITHUB_WORKSPACE
@@ -103,7 +109,6 @@ jobs:
       - name: Run tests and report
         if: inputs.is-package == 'true'
         uses: PowereX-jsa/pwx-actions/r-actions/devtools-test-package@master
-
         with:
           package-dir: ${{ inputs.working-directory }}
           activate-renv: "TRUE"
@@ -112,7 +117,6 @@ jobs:
       - name: Run tests and report
         if: inputs.is-package == 'false'
         uses: PowereX-jsa/pwx-actions/r-actions/run-tests@master
-
         with:
           test-dir: ${{ inputs.working-directory }}/tests/testthat
 
