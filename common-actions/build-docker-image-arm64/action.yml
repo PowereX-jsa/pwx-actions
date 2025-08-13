@@ -63,7 +63,23 @@ runs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Build and push Docker image
+- name: Build and push Docker image (branch)
+      if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.working-directory }}
+        file: ${{ inputs.working-directory }}/Dockerfile
+        push: true
+        platforms: linux/arm64
+        tags: ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ env.TAG }}
+        build-args: ${{ inputs.build-args }}
+        cache-from: type=gha,scope=${{ inputs.docker-repo }}-arm64
+        cache-to: type=gha,mode=max,scope=${{ inputs.docker-repo }}-arm64
+        provenance: false    # Disable provenance attestations -> repo metadata
+        sbom: false          # Disable SBOM attestations -> repo metadata
+        
+    - name: Build and push Docker image (master/main)
+      if: github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main'
       uses: docker/build-push-action@v6
       with:
         context: ${{ inputs.working-directory }}
@@ -71,7 +87,8 @@ runs:
         push: true
         platforms: linux/arm64
         tags: |
-          ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ env.TAG }}     
+          ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:latest
+          ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ env.PROD_TAG }}
         build-args: ${{ inputs.build-args }}
         cache-from: type=gha,scope=${{ inputs.docker-repo }}-arm64
         cache-to: type=gha,mode=max,scope=${{ inputs.docker-repo }}-arm64
