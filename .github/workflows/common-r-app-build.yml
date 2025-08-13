@@ -88,7 +88,7 @@ jobs:
           set-safe-directory: true
 
       - name: Initialize global renv
-        uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@feature/#31_r_actions_optimize_renv_caching_and_docker_setup
+        uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@master
 
         with:
           working-dir: ${{ inputs.working-directory }}
@@ -123,7 +123,7 @@ jobs:
       # building docker images
       - name: Build and push docker image
         id: build-docker-image
-        uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image-arm64@feature/#31_r_actions_optimize_renv_caching_and_docker_setup
+        uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image-arm64@master
         with:
           aws-access-key-id: ${{ secrets.aws-access-key-id }}
           aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
