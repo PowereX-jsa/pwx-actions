@@ -13,7 +13,7 @@ on:
       aws-account-id:
         required: true
         description: "set this to AWS_ACCOUNT_ID of your user"
-    
+
     inputs:
       working-directory:
         required: true
@@ -27,6 +27,7 @@ on:
         required: true
         type: string
         description: "TRUE/FALSE flag that indicates if the tested code is package or not - it the tested code is r package, tests run via devtools otherwise run via testthat library"
+
       cache-version:
         required: false
         type: string
@@ -51,11 +52,6 @@ on:
         type: string
         default: "ubuntu-latest" 
         description: "Runner group to use (e.g., 'arm-group' for ARM64 builds)"
-      platform:
-        required: false
-        type: string
-        default: "linux/amd64"
-        description: "Platform for Docker build (e.g., 'linux/arm64')"
       pre-install-commands:
         required: false
         type: string
@@ -74,19 +70,13 @@ jobs:
 
     container:
       image: ${{ inputs.r-image }}
-      volumes:
-        - /var/run/docker.sock:/var/run/docker.sock
-
     env:
       # default env var name under which R uses token for package installation
       GITHUB_PAT: "${{ secrets.personal-access-token-github }}"
-      DOCKER_BUILDKIT: 1
-
     defaults:
       run:
         shell: bash
         working-directory: ${{ inputs.working-directory }}
-
     outputs:
       tag-to-deploy: ${{ steps.build-docker-image.outputs.tag-to-deploy }}
 
@@ -97,25 +87,9 @@ jobs:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
           set-safe-directory: true
 
-      - name: Cache R packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.local/share/renv
-            ~/.cache/R
-            ${{ inputs.working-directory }}/renv/library
-            ${{ inputs.working-directory }}/renv/cache
-          key: ${{ inputs.runner-group }}-${{ inputs.platform }}-renv-${{ hashFiles(format('{0}/renv.lock', inputs.working-directory)) }}-${{ inputs.cache-version }}
-          restore-keys: |
-            ${{ inputs.runner-group }}-${{ inputs.platform }}-renv-
-
-      - name: Run pre-install commands
-        if: ${{ inputs.pre-install-commands != '' }}
-        run: |
-          ${{ inputs.pre-install-commands }}
-
       - name: Initialize global renv
         uses: PowereX-jsa/pwx-actions/r-actions/setup-renv@master
+
         with:
           working-dir: ${{ inputs.working-directory }}
           renv-version: ${{ inputs.renv-version }}
@@ -126,11 +100,11 @@ jobs:
         run: |
             ${{ inputs.install-package-command }}
         shell: bash {0}
-             
+
       # Declares the repository safe and not under dubious ownership.
       - name: Add repository to git safe directories
         run: git config --global --add safe.directory $GITHUB_WORKSPACE
-             
+
       # if the r project is package, tests run via devtools
       - name: Run tests and report
         if: inputs.is-package == 'true'
@@ -138,7 +112,7 @@ jobs:
         with:
           package-dir: ${{ inputs.working-directory }}
           activate-renv: "TRUE"
-      
+
       # if r project is only scripts, tests run via simple testthat
       - name: Run tests and report
         if: inputs.is-package == 'false'
@@ -156,6 +130,5 @@ jobs:
           aws-account-id: ${{ secrets.aws-account-id }}
           docker-repo: ${{ inputs.docker-repo }}
           working-directory: ${{ inputs.working-directory }}
-          platform: ${{ inputs.platform }}
           build-args: |
             GITHUB_PAT=${{ secrets.personal-access-token-github }}
