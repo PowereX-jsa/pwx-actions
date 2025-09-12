@@ -38,7 +38,7 @@ runs:
           echo "TAG=latest,prod_$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
         else
           # set tags as env vars in current runner
-          echo "TAG=$(echo test-deploy_${{ github.head_ref }} | tr -s '/' '_' | tr -s '#' '_' )" >> "$GITHUB_ENV"
+          echo "TAG=$(echo test-deploy_${{ github.head_ref || github.ref_name }} | tr -s '/' '_' | tr -s '#' '_' )" >> "$GITHUB_ENV"
         fi
       shell: bash
 
