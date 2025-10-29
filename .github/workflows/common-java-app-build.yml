@@ -41,8 +41,13 @@ on:
       runner-group:
         required: false
         type: string
-        default: "ubuntu-latest" 
+        default: "" 
         description: "Runner group to use (e.g., 'arm-group' for ARM64 builds)"
+      runner-labels:
+        required: false
+        type: string
+        default: "" 
+        description: "Runner labels to use (e.g., 'ubuntu-latest')"
 
     outputs:
       tag-to-deploy:
@@ -53,6 +58,7 @@ jobs:
   common-java-app-build:
     runs-on:
       group: ${{ inputs.runner-group }}
+      labels: ${{ inputs.runner-labels }}
 
     env:
       # needed for proper cache -> upload/download fails on timeout
