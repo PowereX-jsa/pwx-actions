@@ -38,11 +38,11 @@ on:
         type: string
         default: build --scan sonarqube --info
         description: "set this to your desired java gradle build arguments"
-      runner-group:
+      runner-labels:
         required: false
         type: string
         default: "ubuntu-latest" 
-        description: "Runner group to use (e.g., 'arm-group' for ARM64 builds)"
+        description: "Runner labels to use (e.g., 'arm-runner' for ARM64 builds)"
 
     outputs:
       tag-to-deploy:
@@ -51,7 +51,7 @@ on:
 
 jobs:
   common-java-app-build:
-    runs-on: ${{ inputs.runner-group }}
+    runs-on: ${{ inputs.runner-labels }}
 
     env:
       # needed for proper cache -> upload/download fails on timeout
