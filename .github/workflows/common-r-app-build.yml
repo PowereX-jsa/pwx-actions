@@ -50,8 +50,8 @@ on:
       runner-group:
         required: false
         type: string
-        default: "ubuntu-latest" 
-        description: "Runner group to use (e.g., 'arm-group' for ARM64 builds)"
+        default: "arm-group" 
+        description: "Runner group to use (e.g., 'arm-group' for ARM64 builds) - labels do not work, this needs to have defined groups"
       pre-install-commands:
         required: false
         type: string
