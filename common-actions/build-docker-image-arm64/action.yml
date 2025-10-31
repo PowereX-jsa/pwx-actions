@@ -1,3 +1,4 @@
+# deprecated, use 'build-docker-image' for multiplatform build
 name: 'build-docker-image-arm64'
 description: 'Action for building docker image and pushing it to specified aws ecr repository'
 author: 'rasto.liska@powerex.io'
