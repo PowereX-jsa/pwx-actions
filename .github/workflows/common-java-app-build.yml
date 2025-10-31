@@ -111,10 +111,11 @@ jobs:
       # building docker images
       - name: Build and push docker image
         id: build-docker-image
-        uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image@master
+        uses: PowereX-jsa/pwx-actions/common-actions/build-docker-image@feature/#2173_multiplatform_build
         with:
           aws-access-key-id: ${{ secrets.aws-access-key-id }}
           aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
           aws-account-id: ${{ secrets.aws-account-id }}
           docker-repo: ${{ inputs.docker-repo }}
           working-directory: ${{ inputs.working-directory }}
+          platforms: linux/amd64,linux/arm64
