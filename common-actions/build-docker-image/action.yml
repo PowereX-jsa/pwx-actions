@@ -25,6 +25,10 @@ inputs:
     type: string
     default: "linux/arm64"
     description: "platform designation for docker buildx multiplatform build"
+  build-args:
+    required: false
+    type: string
+    description: "Additional build arguments to pass to Docker"
 
 outputs:
   tag-to-deploy:
