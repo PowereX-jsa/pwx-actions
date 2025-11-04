@@ -20,6 +20,15 @@ inputs:
   aws-account-id:
     required: true
     description: "set this to AWS_ACCOUNT_ID of your user"
+  platforms:
+    required: false
+    type: string
+    default: "linux/arm64"
+    description: "platform designation for docker buildx multiplatform build"
+  build-args:
+    required: false
+    type: string
+    description: "Additional build arguments to pass to Docker"
 
 outputs:
   tag-to-deploy:
@@ -35,27 +44,62 @@ runs:
       run: |
         if [[ ${{ github.ref }} == 'refs/heads/master' || ${{ github.ref }} == 'refs/heads/main' ]]; then
           # set tags as env vars in current runner
-          echo "TAG=latest,prod_$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          PROD_SHA="prod_$(git rev-parse --short HEAD)"
+          echo "PROD_SHA=${PROD_SHA}" >> "$GITHUB_ENV"
+          echo "TAG=latest,${PROD_SHA}" >> "$GITHUB_ENV"    
         else
           # set tags as env vars in current runner
           echo "TAG=$(echo test-deploy_${{ github.head_ref || github.ref_name }} | tr -s '/' '_' | tr -s '#' '_' )" >> "$GITHUB_ENV"
         fi
       shell: bash
 
-    - name: Docker build and push
-      uses: kciter/aws-ecr-action@master
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v5.1.0
       with:
-        access_key_id: ${{ inputs.aws-access-key-id }}
-        secret_access_key: ${{ inputs.aws-secret-access-key }}
-        account_id: ${{ inputs.aws-account-id }}
-        repo: ${{ inputs.docker-repo }}
-        region: eu-central-1
-        tags: ${{ env.TAG }}
-        dockerfile: "${{ inputs.working-directory }}/Dockerfile"
-        create_repo: false
-        set_repo_policy: false
-        repo_policy_file: repo-policy.json
-        path: ${{ inputs.working-directory }}
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        aws-region: eu-central-1
+
+    - name: Log in to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2.0.1
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and push Docker image (master/main)
+      if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+      uses: docker/build-push-action@v6.18.0
+      with:
+        context: ${{ inputs.working-directory }}
+        file: ${{ inputs.working-directory }}/Dockerfile
+        push: true
+        platforms:  ${{ inputs.platforms }}
+        tags: |
+          ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:latest
+          ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ env.PROD_SHA }}
+        build-args: ${{ inputs.build-args }}
+        cache-from: type=gha,scope=${{ inputs.docker-repo }}-arm64
+        cache-to: type=gha,mode=max,scope=${{ inputs.docker-repo }}-arm64
+        provenance: false    # Disable provenance attestations -> repo metadata (it created 3 images instead of one)
+        sbom: false          # Disable SBOM attestations -> repo metadata (it created 3 images instead of one)
+
+    - name: Build and push Docker image (branch)
+      if: github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main'
+      uses: docker/build-push-action@v6.18.0
+      with:
+        context: ${{ inputs.working-directory }}
+        file: ${{ inputs.working-directory }}/Dockerfile
+        push: true
+        platforms: ${{ inputs.platforms }}
+        tags: ${{ steps.login-ecr.outputs.registry }}/${{ inputs.docker-repo }}:${{ env.TAG }}
+        build-args: ${{ inputs.build-args }}
+        cache-from: type=gha,scope=${{ inputs.docker-repo }}-arm64
+        cache-to: type=gha,mode=max,scope=${{ inputs.docker-repo }}-arm64
+        provenance: false    # Disable provenance attestations -> repo metadata (it created 3 images instead of one)
+        sbom: false          # Disable SBOM attestations -> repo metadata (it created 3 images instead of one)
 
     # can`t do this in step 'Set docker tag' because for some reason env.TAG is empty - probably is filled after the step is finished
     - name: Show published docker image tag and set it as output of job

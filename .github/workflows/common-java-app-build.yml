@@ -118,3 +118,4 @@ jobs:
           aws-account-id: ${{ secrets.aws-account-id }}
           docker-repo: ${{ inputs.docker-repo }}
           working-directory: ${{ inputs.working-directory }}
+          platforms: linux/amd64,linux/arm64
