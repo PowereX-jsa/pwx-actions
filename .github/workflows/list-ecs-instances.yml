@@ -16,7 +16,7 @@ on:
       app:
         required: true
         type: string
-        description: "set this to your app name - service/task definition name, e.g. emsi"
+        description: "set this to your app name or regex pattern for listing affected services/task definitions, e.g. 'emsi' or 'nomination(?!-aggregator)'"
 
     outputs:
       instances-matrix:
@@ -45,7 +45,7 @@ jobs:
         id: get-all-instances
         run: |
           # get all task definitions for requested app
-          defs=$(aws ecs list-task-definitions --status ACTIVE | grep ${{ inputs.app }} | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq || echo "")
+          defs=$(aws ecs list-task-definitions --status ACTIVE | grep -P ${{ inputs.app }} | rev | cut -d "/" -f 1 | rev | cut -d ":" -f 1 | uniq || echo "")
 
           echo "all listed services/task defs:"
           echo "${defs}"
