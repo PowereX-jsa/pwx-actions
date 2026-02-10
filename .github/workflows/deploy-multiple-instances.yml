@@ -30,7 +30,7 @@ on:
 
 jobs:
   list-instances:
-    uses: PowereX-jsa/pwx-actions/.github/workflows/list-ecs-instances.yml@fix/regex_in_app_name
+    uses: PowereX-jsa/pwx-actions/.github/workflows/list-ecs-instances.yml@master
     secrets: 
       aws-access-key-id: ${{ secrets.aws-access-key-id }}
       aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
