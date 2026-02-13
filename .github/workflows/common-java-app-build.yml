@@ -90,6 +90,10 @@ jobs:
           key: ${{ runner.os }}-sonar
           restore-keys: ${{ runner.os }}-sonar
 
+      - name: Force Docker API version
+        run: |
+          echo "api.version=1.44" >~/.docker-java.properties
+
       - name: Gradle build, analyze and publish
         run: ./gradlew ${{ inputs.build-args }}
         env:
