@@ -1,0 +1,46 @@
+on:
+  workflow_call:
+    secrets:
+      github-username:
+        required: true
+        description: "set this to github username for which PERSONAL_ACCESS_TOKEN_GITHUB was generated"
+      personal-access-token-github:
+        required: true
+        description: "set this to your PERSONAL_ACCESS_TOKEN_GITHUB/ACCESS_TOKEN_GITHUB - it is used during build for getting libs from github packages"
+
+    inputs:
+      gradle-module:
+        required: true
+        type: string
+        description: "name of the gradle module to run spotless check on (e.g. emsi, nomination-aggregator)"
+      java-version:
+        required: false
+        type: number
+        default: 23
+        description: "set this to your desired java version (17, 23, etc.) of your project"
+      runner-labels:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+        description: "Runner labels to use"
+
+jobs:
+  java-spotless-lint:
+    runs-on: ${{ inputs.runner-labels }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Set up JDK
+        uses: actions/setup-java@v5.2.0
+        with:
+          distribution: 'corretto'
+          java-version: ${{ inputs.java-version }}
+          cache: gradle
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6.1.0
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6.1.0
+      - name: Run Spotless check
+        run: ./gradlew :${{ inputs.gradle-module }}:spotlessCheck
+        env:
+          GITHUB_USERNAME: ${{ secrets.github-username }}
+          PERSONAL_ACCESS_TOKEN_GITHUB: ${{ secrets.personal-access-token-github }}
