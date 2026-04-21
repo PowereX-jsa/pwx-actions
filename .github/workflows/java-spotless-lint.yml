@@ -40,7 +40,8 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6.1.0
       - name: Run Spotless check
-        run: ./gradlew :${{ inputs.gradle-module }}:spotlessCheck
+        run: ./gradlew spotlessCheck
+        working-directory: ${{ inputs.gradle-module }}
         env:
           GITHUB_USERNAME: ${{ secrets.github-username }}
           PERSONAL_ACCESS_TOKEN_GITHUB: ${{ secrets.personal-access-token-github }}
