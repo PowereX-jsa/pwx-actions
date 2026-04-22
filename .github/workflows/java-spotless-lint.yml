@@ -27,6 +27,9 @@ on:
 jobs:
   java-spotless-lint:
     runs-on: ${{ inputs.runner-labels }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.gradle-module }}
     steps:
       - uses: actions/checkout@v6.0.2
       - name: Set up JDK
@@ -40,7 +43,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6.1.0
       - name: Run Spotless check
-        run: ./gradlew :${{ inputs.gradle-module }}:spotlessCheck
+        run: ./gradlew spotlessCheck
         env:
           GITHUB_USERNAME: ${{ secrets.github-username }}
           PERSONAL_ACCESS_TOKEN_GITHUB: ${{ secrets.personal-access-token-github }}
