@@ -18,7 +18,7 @@ on:
       app:
         required: true
         type: string
-        description: "set this to your app name - service/task definition name, e.g. ems-reporting - for deploying multiple instances of app 'ems-reporting', or specific 'ems-reporting-framipek' - for deploying only 1 specific instance)"
+        description: "set this to your app name - task definition name"
       ecs-cluster:
         required: true
         type: string
@@ -26,19 +26,14 @@ on:
       image:
         required: true
         type: string
-        description: "image to deploy to ecs in task def, e.g. 587619238227.dkr.ecr.eu-central-1.amazonaws.com/ems-reporting"
+        description: "image to deploy to ecs in task def"
 
 jobs:
-  deploy:
+  process-pipes:
     runs-on: ubuntu-latest
-    env:
-      ACTIONS_STEP_DEBUG: true
-    defaults:
-      run:
-        shell: bash
-#    strategy:
-#      fail-fast: false
-#      matrix: ${{ fromJson(needs.list-instances.outputs.instances-matrix) }}
+    outputs:
+      has-pipes: ${{ steps.check-pipes.outputs.has_pipes }}
+      pipes-matrix: ${{ steps.check-pipes.outputs.pipes_matrix }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -46,18 +41,79 @@ jobs:
           aws-access-key-id: ${{ secrets.aws-access-key-id }}
           aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
           aws-region: ${{ inputs.aws-region }}
-
-          # TODO
-          # mask id in logs -> should be true, turning of only for debugging
-          # mask-aws-account-id: true
           mask-aws-account-id: false
 
-      # when running locally, you need to specify region with '--region eu-central-1'
-      # on github actions aws cli setup is done in previous step
-      - name: Download task definition
+      - name: Check for EventBridge pipes
+        id: check-pipes
         run: |
-          aws ecs describe-task-definition --task-definition ${{ inputs.app }} --query taskDefinition > task-definition.json
-          
+          echo "Listing EventBridge pipes with prefix ${{ inputs.app }}..."
+
+          # eventBridge pipes
+          aws pipes list-pipes --name-prefix "${{ inputs.app }}" --query "Pipes[].Name" --output json | jq -c '.' > pipes.json
+
+          if [ "$(cat pipes.json)" == "[]" ]; then
+            echo "No EventBridge pipes found"
+            echo "has_pipes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Found EventBridge pipes:"
+            cat pipes.json
+            echo "has_pipes=true" >> $GITHUB_OUTPUT
+            jq -c '{"task": .}' pipes.json > pipes-matrix.json
+            echo "pipes_matrix=$(cat pipes-matrix.json | tr -d '\n')" >> $GITHUB_OUTPUT
+          fi
+
+  deploy-pipes:
+    needs: [process-pipes]
+    if: needs.process-pipes.outputs.has-pipes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.process-pipes.outputs.pipes-matrix) }}
+    env:
+      ACTIONS_STEP_DEBUG: true
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+          mask-aws-account-id: false
+
+      - name: Process EventBridge pipe
+        run: |
+          echo "Processing EventBridge pipe: ${{ matrix.task }}"
+
+          # target parameters are replaced as a whole on update
+          aws pipes describe-pipe --name "${{ matrix.task }}" | jq '{Name, RoleArn, TargetParameters}' > pipe.json
+          echo "Current pipe configuration:"
+          cat pipe.json
+
+          TASK_DEF_ARN=$(jq -r '.TargetParameters.EcsTaskParameters.TaskDefinitionArn' pipe.json)
+
+          if [ "$TASK_DEF_ARN" != "null" ] && [ -n "$TASK_DEF_ARN" ]; then
+            TASK_DEF=$(echo "$TASK_DEF_ARN" | sed 's/.*task-definition\///' | sed 's/:[0-9]*$//')
+            echo "Extracted task definition from pipe target ARN: $TASK_DEF"
+          else
+            # pipe name as fallback
+            TASK_DEF="${{ matrix.task }}"
+            echo "Using pipe name as task definition: $TASK_DEF"
+          fi
+
+          TASK_EXISTS=$(aws ecs list-task-definitions --family-prefix "$TASK_DEF" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
+
+          if [ "$TASK_EXISTS" -eq "0" ]; then
+            echo "No task definition found with name $TASK_DEF"
+            exit 1
+          fi
+
+          echo "Using task definition: $TASK_DEF"
+
+          aws ecs describe-task-definition --task-definition "$TASK_DEF" --query taskDefinition > task-definition.json
+
+          echo "Downloaded task definition for $TASK_DEF"
+
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: render-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1.2.0
@@ -66,58 +122,27 @@ jobs:
           container-name: main
           image: ${{ inputs.image }}
 
-      - name: Print original task definition
-        run: |
-          cat ${{ steps.render-task-def.outputs.task-definition }}
-
-      - name: Prepair new task definition
+      - name: Prepare new task definition
         run: |
           cat ${{ steps.render-task-def.outputs.task-definition }} | jq 'del(.taskDefinitionArn) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.revision) | del(.registeredAt) | del(.registeredBy)' > task-definition-ready.json
-
-      - name: Print new task definition
-        run: |
-          cat task-definition-ready.json
 
       - name: Register the new task definition
         run: |
           aws ecs register-task-definition --cli-input-json file://task-definition-ready.json > task-definition-registered.json
-
-      - name: Print registered task definition
-        run: |
-          cat task-definition-registered.json
-
-      - name: Get names of all pipes
-        run: |
-          aws pipes list-pipes --query "Pipes[?starts_with(Name, '${{ inputs.app }}')].Name" > pipes-names.json
-          cat pipes-names.json
-
-      - name: Get target parameters by pipe name
-        run: |
-          # cely TargetParameters sa pri update-pipe prepisuje atomicky -> beriem ho cely, nie len ARN
-          for name in $(jq -r '.[]' pipes-names.json); do
-            aws pipes describe-pipe --name $name | jq '{Name, RoleArn, TargetParameters}' > ${name}-pipe.json
-            cat ${name}-pipe.json
-          done
-
-      - name: Prepair new pipe targets for all names
-        run: |
           NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
-          echo "new-task-arn=$NEW_TASK_ARN"
-            for name in $(jq -r '.[]' pipes-names.json); do
-              jq --arg new_task_arn "$NEW_TASK_ARN" '.TargetParameters.EcsTaskParameters.TaskDefinitionArn = $new_task_arn' ${name}-pipe.json > ${name}-pipe-ready.json
-              cat ${name}-pipe-ready.json
-            done
+          echo "new_task_arn=$NEW_TASK_ARN" >> $GITHUB_ENV
 
-      - name: Update pipes with new targets
+      - name: Update EventBridge pipe target
         run: |
-          for name in $(jq -r '.[]' pipes-names.json); do
-            aws pipes update-pipe --cli-input-json file://${name}-pipe-ready.json > update-pipe-${name}.json
-            cat update-pipe-${name}.json
-          done
+          jq --arg new_task_arn "${{ env.new_task_arn }}" '.TargetParameters.EcsTaskParameters.TaskDefinitionArn = $new_task_arn' pipe.json > pipe-ready.json
+          echo "New pipe configuration:"
+          cat pipe-ready.json
+
+          aws pipes update-pipe --cli-input-json file://pipe-ready.json
 
   notify-slack:
-    if: always() && contains(toJson(needs.deploy.result), 'failure') && contains(inputs.ecs-cluster, 'prod')
-    needs: [deploy]
+    if: always() && needs.deploy-pipes.result == 'failure' && contains(inputs.ecs-cluster, 'prod')
+    needs: [deploy-pipes]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -131,7 +156,7 @@ jobs:
         uses: PowereX-jsa/pwx-actions/common-actions/notify-slack@master
         with:
           slack-webhook-url: ${{ secrets.slack-webhook-url }}
-          status: ${{ needs.deploy.result }}
+          status: failure
           repository: ${{ github.repository }}
           commit-url: ${{ format('{0}/{1}/commit/{2}', github.server_url, github.repository, github.sha) }}
           commit-slug: ${{ steps.short_commit.outputs.SHORT_SHA }}
