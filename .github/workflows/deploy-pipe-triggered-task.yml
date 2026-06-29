@@ -1,0 +1,143 @@
+on:
+  workflow_call:
+    secrets:
+      aws-access-key-id:
+        required: true
+        description: "set this to AWS_ACCESS_KEY_ID of your user"
+      aws-secret-access-key:
+        required: true
+        description: "set this to AWS_SECRET_ACCESS_KEY of your user"
+      slack-webhook-url:
+        required: true
+        description: "Slack webhook URL for notifications"        
+    inputs:
+      aws-region:
+        required: true
+        type: string
+        description: "set this to your preferred AWS region, e.g. us-west-1"
+      app:
+        required: true
+        type: string
+        description: "set this to your app name - service/task definition name, e.g. ems-reporting - for deploying multiple instances of app 'ems-reporting', or specific 'ems-reporting-framipek' - for deploying only 1 specific instance)"
+      ecs-cluster:
+        required: true
+        type: string
+        description: "set this to your Amazon ECS cluster name, e.g. ecs-dev"
+      image:
+        required: true
+        type: string
+        description: "image to deploy to ecs in task def, e.g. 587619238227.dkr.ecr.eu-central-1.amazonaws.com/ems-reporting"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_STEP_DEBUG: true
+    defaults:
+      run:
+        shell: bash
+#    strategy:
+#      fail-fast: false
+#      matrix: ${{ fromJson(needs.list-instances.outputs.instances-matrix) }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+
+          # TODO
+          # mask id in logs -> should be true, turning of only for debugging
+          # mask-aws-account-id: true
+          mask-aws-account-id: false
+
+      # when running locally, you need to specify region with '--region eu-central-1'
+      # on github actions aws cli setup is done in previous step
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ inputs.app }} --query taskDefinition > task-definition.json
+          
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1.2.0
+        with:
+          task-definition: task-definition.json
+          container-name: main
+          image: ${{ inputs.image }}
+
+      - name: Print original task definition
+        run: |
+          cat ${{ steps.render-task-def.outputs.task-definition }}
+
+      - name: Prepair new task definition
+        run: |
+          cat ${{ steps.render-task-def.outputs.task-definition }} | jq 'del(.taskDefinitionArn) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.revision) | del(.registeredAt) | del(.registeredBy)' > task-definition-ready.json
+
+      - name: Print new task definition
+        run: |
+          cat task-definition-ready.json
+
+      - name: Register the new task definition
+        run: |
+          aws ecs register-task-definition --cli-input-json file://task-definition-ready.json > task-definition-registered.json
+
+      - name: Print registered task definition
+        run: |
+          cat task-definition-registered.json
+
+      - name: Get names of all pipes
+        run: |
+          aws pipes list-pipes --query "Pipes[?starts_with(Name, '${{ inputs.app }}')].Name" > pipes-names.json
+          cat pipes-names.json
+
+      - name: Get target parameters by pipe name
+        run: |
+          # cely TargetParameters sa pri update-pipe prepisuje atomicky -> beriem ho cely, nie len ARN
+          for name in $(jq -r '.[]' pipes-names.json); do
+            aws pipes describe-pipe --name $name | jq '{Name, RoleArn, TargetParameters}' > ${name}-pipe.json
+            cat ${name}-pipe.json
+          done
+
+      - name: Prepair new pipe targets for all names
+        run: |
+          NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
+          echo "new-task-arn=$NEW_TASK_ARN"
+            for name in $(jq -r '.[]' pipes-names.json); do
+              jq --arg new_task_arn "$NEW_TASK_ARN" '.TargetParameters.EcsTaskParameters.TaskDefinitionArn = $new_task_arn' ${name}-pipe.json > ${name}-pipe-ready.json
+              cat ${name}-pipe-ready.json
+            done
+
+      - name: Update pipes with new targets
+        run: |
+          for name in $(jq -r '.[]' pipes-names.json); do
+            aws pipes update-pipe --cli-input-json file://${name}-pipe-ready.json > update-pipe-${name}.json
+            cat update-pipe-${name}.json
+          done
+
+  notify-slack:
+    if: always() && contains(toJson(needs.deploy.result), 'failure') && contains(inputs.ecs-cluster, 'prod')
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get short commit hash
+        id: short_commit
+        run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT        
+
+      - name: Notify Slack
+        uses: PowereX-jsa/pwx-actions/common-actions/notify-slack@master
+        with:
+          slack-webhook-url: ${{ secrets.slack-webhook-url }}
+          status: ${{ needs.deploy.result }}
+          repository: ${{ github.repository }}
+          commit-url: ${{ format('{0}/{1}/commit/{2}', github.server_url, github.repository, github.sha) }}
+          commit-slug: ${{ steps.short_commit.outputs.SHORT_SHA }}
+          author: ${{ github.actor }}
+          job: "ECS Deployment"
+          event-name: ${{ github.event_name }}
+          workflow: ${{ github.workflow }}
+          run-id: ${{ github.run_id }}
+          message: "ECS Deployment: ${{ inputs.app }} to ${{ inputs.ecs-cluster }}"
