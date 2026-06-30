@@ -85,7 +85,7 @@ jobs:
         run: |
           echo "Processing EventBridge pipe: ${{ matrix.task }}"
 
-          # target parameters are replaced as a whole on update
+          # take whole target parameters
           aws pipes describe-pipe --name "${{ matrix.task }}" | jq '{Name, RoleArn, TargetParameters}' > pipe.json
           echo "Current pipe configuration:"
           cat pipe.json
