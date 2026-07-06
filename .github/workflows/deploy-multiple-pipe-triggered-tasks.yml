@@ -46,6 +46,9 @@ jobs:
       - name: Check for EventBridge pipes
         id: check-pipes
         run: |
+          # https://gist.github.com/akrasic/380bda362e0420be08709152c91ca1f9 without x to not leak secrets
+          set -euo pipefail
+
           echo "Listing EventBridge pipes with prefix ${{ inputs.app }}..."
 
           # eventBridge pipes
