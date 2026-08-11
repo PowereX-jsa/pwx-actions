@@ -11,8 +11,8 @@ on:
         required: true
         description: "Slack webhook URL for successful deployments"
       slack-webhook-url-alerts:
-        required: false
-        description: "Slack webhook URL for failed deployments; when not provided, failure notifications are not sent at all"
+        required: true
+        description: "Slack webhook URL for failed deployments"
     inputs:
       aws-region:
         required: true
@@ -147,14 +147,9 @@ jobs:
           aws pipes update-pipe --cli-input-json file://pipe-ready.json
 
   notify-slack:
-    if: always() && contains(inputs.ecs-cluster, 'prod') && !(needs.process-pipes.result == 'success' && needs.deploy-pipes.result == 'skipped')
-    needs: [process-pipes, deploy-pipes]
+    if: always() && contains(inputs.ecs-cluster, 'dev') && (needs.deploy-pipes.result == 'success' || needs.deploy-pipes.result == 'failure')
+    needs: [deploy-pipes]
     runs-on: ubuntu-latest
-    env:
-      SLACK_WEBHOOK_SUCCESS: ${{ secrets.slack-webhook-url }}
-      SLACK_WEBHOOK_FAILURE: ${{ secrets.slack-webhook-url-alerts }}
-      PROCESS_RESULT: ${{ needs.process-pipes.result }}
-      DEPLOY_RESULT: ${{ needs.deploy-pipes.result }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -163,23 +158,11 @@ jobs:
         id: short_commit
         run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
 
-      - name: Resolve deployment status
-        id: status
-        run: |
-          set -euo pipefail
-
-          if [ "$PROCESS_RESULT" = "success" ] && [ "$DEPLOY_RESULT" = "success" ]; then
-            echo "result=success" >> "$GITHUB_OUTPUT"
-          else
-            echo "result=failure" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Notify Slack
-        if: steps.status.outputs.result == 'success' || env.SLACK_WEBHOOK_FAILURE != ''
         uses: PowereX-jsa/pwx-actions/common-actions/notify-slack@master
         with:
-          slack-webhook-url: ${{ steps.status.outputs.result == 'success' && env.SLACK_WEBHOOK_SUCCESS || env.SLACK_WEBHOOK_FAILURE }}
-          status: ${{ steps.status.outputs.result }}
+          slack-webhook-url: ${{ needs.deploy-pipes.result == 'success' && secrets.slack-webhook-url || secrets.slack-webhook-url-alerts }}
+          status: ${{ needs.deploy-pipes.result }}
           repository: ${{ github.repository }}
           commit-url: ${{ format('{0}/{1}/commit/{2}', github.server_url, github.repository, github.sha) }}
           commit-slug: ${{ steps.short_commit.outputs.SHORT_SHA }}
