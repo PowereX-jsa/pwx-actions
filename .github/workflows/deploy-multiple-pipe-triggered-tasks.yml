@@ -147,7 +147,7 @@ jobs:
           aws pipes update-pipe --cli-input-json file://pipe-ready.json
 
   notify-slack:
-    if: always() && contains(inputs.ecs-cluster, 'dev') && (needs.deploy-pipes.result == 'success' || needs.deploy-pipes.result == 'failure')
+    if: always() && contains(inputs.ecs-cluster, 'prod') && (needs.deploy-pipes.result == 'success' || needs.deploy-pipes.result == 'failure')
     needs: [deploy-pipes]
     runs-on: ubuntu-latest
     steps:
