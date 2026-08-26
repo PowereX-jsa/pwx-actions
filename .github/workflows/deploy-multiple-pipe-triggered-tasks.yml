@@ -1,0 +1,174 @@
+on:
+  workflow_call:
+    secrets:
+      aws-access-key-id:
+        required: true
+        description: "set this to AWS_ACCESS_KEY_ID of your user"
+      aws-secret-access-key:
+        required: true
+        description: "set this to AWS_SECRET_ACCESS_KEY of your user"
+      slack-webhook-url:
+        required: true
+        description: "Slack webhook URL for successful deployments"
+      slack-webhook-url-alerts:
+        required: true
+        description: "Slack webhook URL for failed deployments"
+    inputs:
+      aws-region:
+        required: true
+        type: string
+        description: "set this to your preferred AWS region, e.g. us-west-1"
+      app:
+        required: true
+        type: string
+        description: "set this to your app name - task definition name"
+      ecs-cluster:
+        required: true
+        type: string
+        description: "set this to your Amazon ECS cluster name, e.g. ecs-dev"
+      image:
+        required: true
+        type: string
+        description: "image to deploy to ecs in task def"
+
+jobs:
+  process-pipes:
+    runs-on: ubuntu-latest
+    outputs:
+      has-pipes: ${{ steps.check-pipes.outputs.has_pipes }}
+      pipes-matrix: ${{ steps.check-pipes.outputs.pipes_matrix }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+          mask-aws-account-id: false
+
+      - name: Check for EventBridge pipes
+        id: check-pipes
+        run: |
+          # https://gist.github.com/akrasic/380bda362e0420be08709152c91ca1f9 without x to not leak secrets
+          set -euo pipefail
+
+          echo "Listing EventBridge pipes with prefix ${{ inputs.app }}..."
+
+          # eventBridge pipes
+          aws pipes list-pipes --name-prefix "${{ inputs.app }}" --query "Pipes[].Name" --output json | jq -c '.' > pipes.json
+
+          if [ "$(cat pipes.json)" == "[]" ]; then
+            echo "No EventBridge pipes found"
+            echo "has_pipes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Found EventBridge pipes:"
+            cat pipes.json
+            echo "has_pipes=true" >> $GITHUB_OUTPUT
+            jq -c '{"task": .}' pipes.json > pipes-matrix.json
+            echo "pipes_matrix=$(cat pipes-matrix.json | tr -d '\n')" >> $GITHUB_OUTPUT
+          fi
+
+  deploy-pipes:
+    needs: [process-pipes]
+    if: needs.process-pipes.outputs.has-pipes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.process-pipes.outputs.pipes-matrix) }}
+    env:
+      ACTIONS_STEP_DEBUG: true
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+          mask-aws-account-id: false
+
+      - name: Process EventBridge pipe
+        run: |
+          echo "Processing EventBridge pipe: ${{ matrix.task }}"
+
+          # take whole target parameters
+          aws pipes describe-pipe --name "${{ matrix.task }}" | jq '{Name, RoleArn, TargetParameters}' > pipe.json
+          echo "Current pipe configuration:"
+          cat pipe.json
+
+          TASK_DEF_ARN=$(jq -r '.TargetParameters.EcsTaskParameters.TaskDefinitionArn' pipe.json)
+
+          if [ "$TASK_DEF_ARN" != "null" ] && [ -n "$TASK_DEF_ARN" ]; then
+            TASK_DEF=$(echo "$TASK_DEF_ARN" | sed 's/.*task-definition\///' | sed 's/:[0-9]*$//')
+            echo "Extracted task definition from pipe target ARN: $TASK_DEF"
+          else
+            # pipe name as fallback
+            TASK_DEF="${{ matrix.task }}"
+            echo "Using pipe name as task definition: $TASK_DEF"
+          fi
+
+          TASK_EXISTS=$(aws ecs list-task-definitions --family-prefix "$TASK_DEF" --status ACTIVE --query 'length(taskDefinitionArns)' --output text)
+
+          if [ "$TASK_EXISTS" -eq "0" ]; then
+            echo "No task definition found with name $TASK_DEF"
+            exit 1
+          fi
+
+          echo "Using task definition: $TASK_DEF"
+
+          aws ecs describe-task-definition --task-definition "$TASK_DEF" --query taskDefinition > task-definition.json
+
+          echo "Downloaded task definition for $TASK_DEF"
+
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1.2.0
+        with:
+          task-definition: task-definition.json
+          container-name: main
+          image: ${{ inputs.image }}
+
+      - name: Prepare new task definition
+        run: |
+          cat ${{ steps.render-task-def.outputs.task-definition }} | jq 'del(.taskDefinitionArn) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.revision) | del(.registeredAt) | del(.registeredBy)' > task-definition-ready.json
+
+      - name: Register the new task definition
+        run: |
+          aws ecs register-task-definition --cli-input-json file://task-definition-ready.json > task-definition-registered.json
+          NEW_TASK_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' task-definition-registered.json)
+          echo "new_task_arn=$NEW_TASK_ARN" >> $GITHUB_ENV
+
+      - name: Update EventBridge pipe target
+        run: |
+          jq --arg new_task_arn "${{ env.new_task_arn }}" '.TargetParameters.EcsTaskParameters.TaskDefinitionArn = $new_task_arn' pipe.json > pipe-ready.json
+          echo "New pipe configuration:"
+          cat pipe-ready.json
+
+          aws pipes update-pipe --cli-input-json file://pipe-ready.json
+
+  notify-slack:
+    if: always() && contains(inputs.ecs-cluster, 'prod') && (needs.deploy-pipes.result == 'success' || needs.deploy-pipes.result == 'failure')
+    needs: [deploy-pipes]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get short commit hash
+        id: short_commit
+        run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
+
+      - name: Notify Slack
+        uses: PowereX-jsa/pwx-actions/common-actions/notify-slack@master
+        with:
+          slack-webhook-url: ${{ needs.deploy-pipes.result == 'success' && secrets.slack-webhook-url || secrets.slack-webhook-url-alerts }}
+          status: ${{ needs.deploy-pipes.result }}
+          repository: ${{ github.repository }}
+          commit-url: ${{ format('{0}/{1}/commit/{2}', github.server_url, github.repository, github.sha) }}
+          commit-slug: ${{ steps.short_commit.outputs.SHORT_SHA }}
+          author: ${{ github.actor }}
+          job: "ECS Deployment"
+          event-name: ${{ github.event_name }}
+          workflow: ${{ github.workflow }}
+          run-id: ${{ github.run_id }}
+          message: "ECS Deployment: ${{ inputs.app }} to ${{ inputs.ecs-cluster }}"
